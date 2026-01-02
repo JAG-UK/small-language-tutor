@@ -65,12 +65,26 @@
         <!-- Practice Panel -->
         <div class="practice-panel">
             <h3>Practice Area</h3>
-            <p class="hint">Test sentences here before sending</p>
-            <textarea id="practice-input" 
-                      placeholder="Type a sentence to check..."
-                      rows="3"></textarea>
-            <button onclick="checkPractice()">Check</button>
-            <div id="practice-result"></div>
+            
+            <!-- Top Section: Grammar Check -->
+            <div class="practice-section">
+                <p class="hint">Test sentences here before sending</p>
+                <textarea id="practice-input" 
+                          placeholder="Type a sentence to check..."
+                          rows="3"></textarea>
+                <button onclick="checkPractice()">Check</button>
+                <div id="practice-result"></div>
+            </div>
+            
+            <!-- Bottom Section: Translation -->
+            <div class="practice-section practice-section-bottom">
+                <p class="hint">Translate from English</p>
+                <textarea id="translation-input" 
+                          placeholder="Enter an English phrase..."
+                          rows="3"></textarea>
+                <button onclick="translatePhrase()">Translate</button>
+                <div id="translation-result"></div>
+            </div>
         </div>
     </div>
     
@@ -183,6 +197,47 @@
                         </div>
                     `;
                 }
+            });
+        }
+        
+        function translatePhrase() {
+            const textarea = document.getElementById('translation-input');
+            const language = document.getElementById('language-select').value;
+            const englishPhrase = textarea.value.trim();
+            
+            if (!englishPhrase) return;
+            
+            const resultDiv = document.getElementById('translation-result');
+            resultDiv.innerHTML = '<div class="practice-loading">Translating...</div>';
+            
+            fetch('/api/translate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({phrase: englishPhrase, language})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    resultDiv.innerHTML = `
+                        <div class="practice-error">
+                            ${escapeHtml(data.error)}
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="translation-result">
+                            <div class="translation-label">Translation:</div>
+                            <div class="translation-text">${escapeHtml(data.translation)}</div>
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                resultDiv.innerHTML = `
+                    <div class="practice-error">
+                        Error: Could not translate. Please try again.
+                    </div>
+                `;
             });
         }
         

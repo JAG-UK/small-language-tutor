@@ -80,6 +80,32 @@ def practice():
     correction = grammar_checker.check_message(sentence, [], language)
     return jsonify(correction)
 
+@app.route('/api/translate', methods=['POST'])
+def translate():
+    """Translate an English phrase to the target language"""
+    data = request.json
+    english_phrase = data.get('phrase', '')
+    target_language = data.get('language', 'es')
+    
+    if not english_phrase:
+        return jsonify({'error': 'No phrase provided'}), 400
+    
+    # Use the SLM to translate
+    system_prompt = f"""You are a professional translator. Translate the following English phrase into {target_language}. 
+    Provide a natural, conversational translation that a native speaker would use. 
+    Do not provide explanations, only the translation."""
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Translate this to {target_language}: {english_phrase}"}
+    ]
+    
+    try:
+        translation = ollama.chat(messages, target_language)
+        return jsonify({'translation': translation.strip()})
+    except Exception as e:
+        return jsonify({'error': f'Translation failed: {str(e)}'}), 500
+
 @app.route('/api/corrections', methods=['GET'])
 def get_corrections():
     """Get corrections for current conversation"""
@@ -173,5 +199,5 @@ def get_conversation(conv_id):
     return jsonify(result)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)
 

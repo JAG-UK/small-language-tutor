@@ -38,7 +38,9 @@ Language learning reinforcement app based on local small language models.
    ```
 
 5. **Open in browser:**
-   Navigate to `http://localhost:5000`
+   Navigate to `http://localhost:5001`
+   
+   Note: Port 5001 is used instead of 5000 to avoid conflicts with macOS AirPlay Receiver
 
 ## Architecture
 
