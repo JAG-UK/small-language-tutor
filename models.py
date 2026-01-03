@@ -14,6 +14,7 @@ class Conversation(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     messages = Column(JSON)  # Store messages as JSON array
     corrections = Column(JSON)  # Store corrections as JSON array
+    hints = Column(JSON)  # Store hints as JSON array
 
 engine = create_engine('sqlite:///database.db', echo=False)
 Base.metadata.create_all(engine)

@@ -32,7 +32,8 @@ def chat():
         conversations[session_id] = {
             'messages': [],
             'language': language,
-            'corrections': []
+            'corrections': [],
+            'hints': []
         }
     
     conv = conversations[session_id]
@@ -51,10 +52,26 @@ def chat():
             'timestamp': datetime.now().isoformat()
         })
     
+    # Get hints for naturalness improvement
+    hints_result = grammar_checker.get_hints(user_message, conv['messages'], language)
+    if hints_result.get('has_hints') and hints_result.get('hints'):
+        conv['hints'].append({
+            'message': user_message,
+            'hints': hints_result.get('hints', []),
+            'timestamp': datetime.now().isoformat()
+        })
+    
     # Get AI response
     system_prompt = f"""You are a friendly language tutor helping someone learn {language}. 
-    Keep responses natural, conversational, and appropriate for a language learner. 
-    Keep responses brief (2-3 sentences max)."""
+
+CRITICAL RULES:
+1. You MUST respond ENTIRELY in {language}. Do NOT use English or any other language.
+2. Every word, phrase, and sentence must be in {language} only.
+3. Keep responses natural, conversational, and appropriate for a language learner.
+4. Keep responses brief (2-3 sentences max).
+5. If you need to explain something, explain it in {language}, not in English.
+
+Remember: This is a language practice conversation. The entire conversation must be in {language}."""
     
     messages_for_llm = [
         {"role": "system", "content": system_prompt}
@@ -108,34 +125,74 @@ def translate():
 
 @app.route('/api/corrections', methods=['GET'])
 def get_corrections():
-    """Get corrections for current conversation"""
+    """Get corrections and hints for current conversation"""
     session_id = request.args.get('session_id', 'default')
     corrections = []
+    hints = []
     if session_id in conversations:
-        corrections = conversations[session_id]['corrections']
+        corrections = conversations[session_id].get('corrections', [])
+        hints = conversations[session_id].get('hints', [])
     
-    if not corrections:
-        return '<p class="empty-state">No corrections yet. Keep practicing!</p>'
+    if not corrections and not hints:
+        return '<p class="empty-state">No learning points yet. Keep practicing!</p>'
     
-    # Render corrections as HTML
+    # Combine corrections and hints, sorted by timestamp (most recent first)
+    all_items = []
+    for corr in corrections:
+        all_items.append({
+            'type': 'correction',
+            'timestamp': corr.get('timestamp', ''),
+            'data': corr
+        })
+    for hint in hints:
+        all_items.append({
+            'type': 'hint',
+            'timestamp': hint.get('timestamp', ''),
+            'data': hint
+        })
+    
+    # Sort by timestamp, most recent first
+    all_items.sort(key=lambda x: x['timestamp'], reverse=True)
+    
+    # Render as HTML
     html_output = ''
-    for correction in reversed(corrections):  # Show most recent first
-        original = correction.get('message', '')
-        corrected = correction.get('corrected', '')
-        explanation = correction.get('explanation', '')
-        
-        # Escape HTML to prevent XSS
-        original = html.escape(original)
-        corrected = html.escape(corrected)
-        explanation = html.escape(explanation)
-        
-        html_output += f'''
-        <div class="correction-item">
-            <div class="original">{original}</div>
-            <div class="corrected">✓ {corrected}</div>
-            <div class="explanation">{explanation}</div>
-        </div>
-        '''
+    for item in all_items:
+        if item['type'] == 'correction':
+            corr = item['data']
+            original = html.escape(str(corr.get('message', '')))
+            corrected = html.escape(str(corr.get('corrected', '')))
+            explanation_raw = corr.get('explanation', '')
+            
+            # Handle explanation as string or list
+            if isinstance(explanation_raw, list):
+                explanation = '<br>'.join([html.escape(str(item)) for item in explanation_raw])
+            else:
+                explanation = html.escape(str(explanation_raw))
+            
+            html_output += f'''
+            <div class="correction-item">
+                <div class="item-label">Correction</div>
+                <div class="original">{original}</div>
+                <div class="corrected">✓ {corrected}</div>
+                <div class="explanation">{explanation}</div>
+            </div>
+            '''
+        else:  # hint
+            hint_data = item['data']
+            message = html.escape(hint_data.get('message', ''))
+            hints_list = hint_data.get('hints', [])
+            
+            hints_html = ''
+            for i, hint_text in enumerate(hints_list, 1):
+                hints_html += f'<li>{html.escape(hint_text)}</li>'
+            
+            html_output += f'''
+            <div class="hint-item">
+                <div class="item-label">Hint</div>
+                <div class="hint-message">{message}</div>
+                <ul class="hints-list">{hints_html}</ul>
+            </div>
+            '''
     
     return html_output
 
@@ -155,7 +212,8 @@ def save_conversation():
         title=conv['messages'][0]['content'][:50] if conv['messages'] else "Untitled",
         language=conv['language'],
         messages=json.dumps(conv['messages']),
-        corrections=json.dumps(conv['corrections'])
+        corrections=json.dumps(conv.get('corrections', [])),
+        hints=json.dumps(conv.get('hints', []))
     )
     
     session.add(db_conv)
@@ -193,7 +251,8 @@ def get_conversation(conv_id):
         'language': conv.language,
         'created_at': conv.created_at.isoformat(),
         'messages': json.loads(conv.messages),
-        'corrections': json.loads(conv.corrections)
+        'corrections': json.loads(conv.corrections) if conv.corrections else [],
+        'hints': json.loads(conv.hints) if hasattr(conv, 'hints') and conv.hints else []
     }
     session.close()
     return jsonify(result)

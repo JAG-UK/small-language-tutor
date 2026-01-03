@@ -169,12 +169,24 @@ body {
     flex: 1;
 }
 
+.item-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+}
+
 .correction-item {
     padding: 0.75rem;
     margin-bottom: 0.75rem;
     background: #FFF9E6;
     border-left: 3px solid #FFC107;
     border-radius: 4px;
+}
+
+.correction-item .item-label {
+    color: #F57C00;
 }
 
 .correction-item .original {
@@ -193,6 +205,36 @@ body {
     color: #666;
     font-size: 0.9rem;
     font-style: italic;
+}
+
+.hint-item {
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    background: #E8F5E9;
+    border-left: 3px solid #4CAF50;
+    border-radius: 4px;
+}
+
+.hint-item .item-label {
+    color: #2E7D32;
+}
+
+.hint-item .hint-message {
+    color: #333;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    font-style: italic;
+}
+
+.hint-item .hints-list {
+    margin: 0;
+    padding-left: 1.25rem;
+    color: #1B5E20;
+}
+
+.hint-item .hints-list li {
+    margin-bottom: 0.25rem;
+    line-height: 1.4;
 }
 
 .empty-state {
