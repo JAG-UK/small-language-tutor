@@ -44,21 +44,30 @@ body {
     font-size: 1.2rem;
 }
 
-#language-select {
+#language-select, #tone-select, #translation-direction {
     padding: 0.5rem;
     border: 1px solid #ddd;
     border-radius: 6px;
 }
 
-.save-btn {
+.save-btn, .new-conversation-btn {
     padding: 0.5rem 1rem;
-    background: #4CAF50;
-    color: white;
     border: none;
     border-radius: 6px;
     cursor: pointer;
+    font-size: 0.875rem;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+}
+
+.save-btn {
+    background: #4CAF50;
+    color: white;
+}
+
+.new-conversation-btn {
+    background: #2196F3;
+    color: white;
 }
 
 .chat-messages {
@@ -272,6 +281,11 @@ body {
 .practice-panel .hint {
     color: #666;
     font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+#translation-direction {
+    width: 100%;
     margin-bottom: 0.5rem;
 }
 

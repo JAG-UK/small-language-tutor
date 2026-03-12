@@ -9,7 +9,7 @@ import html
 app = Flask(__name__)
 
 # Initialize clients
-ollama = OllamaClient(model="gemma2:27b")  # Configurable
+ollama = OllamaClient(model="phi4-mini:3.8b")  # Configurable
 grammar_checker = GrammarChecker(ollama)
 
 # Current conversation state (in-memory, per session)
@@ -26,34 +26,51 @@ def chat():
     session_id = data.get('session_id', 'default')
     user_message = data.get('message', '')
     language = data.get('language', 'es')  # Default to Spanish
+    tone = data.get('tone', 'friendly')  # Default to friendly
     
     # Get or create conversation
     if session_id not in conversations:
         conversations[session_id] = {
             'messages': [],
             'language': language,
+            'tone': tone,
             'corrections': [],
             'hints': []
         }
     
     conv = conversations[session_id]
+    # Update tone if changed
+    conv['tone'] = tone
     
     # Add user message
     user_msg = {"role": "user", "content": user_message, "timestamp": datetime.now().isoformat()}
     conv['messages'].append(user_msg)
     
-    # Check grammar
-    correction = grammar_checker.check_message(user_message, conv['messages'], language)
-    if correction.get('has_errors'):
+    # Check grammar (with tone awareness)
+    correction = grammar_checker.check_message(user_message, conv['messages'], language, tone)
+    
+    # Debug: Log correction result
+    print(f"DEBUG: Correction result: {correction}")
+    print(f"DEBUG: has_errors value: {correction.get('has_errors')}, type: {type(correction.get('has_errors'))}")
+    
+    # Handle both boolean and string values for has_errors
+    has_errors = correction.get('has_errors', False)
+    if isinstance(has_errors, str):
+        has_errors = has_errors.lower() in ('true', '1', 'yes')
+    
+    if has_errors:
+        print(f"DEBUG: Adding correction to session {session_id}")
         conv['corrections'].append({
             'message': user_message,
             'corrected': correction.get('corrected'),
             'explanation': correction.get('explanation'),
             'timestamp': datetime.now().isoformat()
         })
+    else:
+        print(f"DEBUG: No errors detected or has_errors is False")
     
-    # Get hints for naturalness improvement
-    hints_result = grammar_checker.get_hints(user_message, conv['messages'], language)
+    # Get hints for naturalness improvement (with tone awareness)
+    hints_result = grammar_checker.get_hints(user_message, conv['messages'], language, tone)
     if hints_result.get('has_hints') and hints_result.get('hints'):
         conv['hints'].append({
             'message': user_message,
@@ -62,16 +79,26 @@ def chat():
         })
     
     # Get AI response
-    system_prompt = f"""You are a friendly language tutor helping someone learn {language}. 
+    tone_instructions = {
+        'friendly': 'warm, casual, and approachable. Use informal language, friendly expressions, and show interest in the conversation.',
+        'professional': 'polite, formal, and business-like. Use formal language, proper titles if appropriate, and maintain a respectful distance.',
+        'flirty': 'playful, charming, and slightly suggestive. Use teasing language, compliments, and create a light romantic or playful atmosphere.'
+    }
+    
+    tone_desc = tone_instructions.get(tone, tone_instructions['friendly'])
+    
+    system_prompt = f"""You are a {language} native speaker having a natural conversation with the user. The tone of this conversation is {tone}: be {tone_desc}
 
 CRITICAL RULES:
 1. You MUST respond ENTIRELY in {language}. Do NOT use English or any other language.
 2. Every word, phrase, and sentence must be in {language} only.
-3. Keep responses natural, conversational, and appropriate for a language learner.
-4. Keep responses brief (2-3 sentences max).
-5. If you need to explain something, explain it in {language}, not in English.
+3. Maintain the {tone} tone throughout your responses - match the user's tone and style.
+4. Keep responses natural, conversational, and appropriate for a language learner.
+5. Keep responses brief (2-3 sentences max).
+6. If you need to explain something, explain it in {language}, not in English.
+7. If you don't understand what the user is saying, or it doesn't make sense in the context of the rest of the conversation, ask them for clarification.
 
-Remember: This is a language practice conversation. The entire conversation must be in {language}."""
+Remember: This is a language practice conversation in a {tone} tone. The entire conversation must be in {language}."""
     
     messages_for_llm = [
         {"role": "system", "content": system_prompt}
@@ -81,9 +108,32 @@ Remember: This is a language practice conversation. The entire conversation must
     ai_msg = {"role": "assistant", "content": ai_response, "timestamp": datetime.now().isoformat()}
     conv['messages'].append(ai_msg)
     
+    # Prepare correction data for response (if errors found)
+    correction_data = None
+    if has_errors:
+        correction_data = {
+            'message': user_message,
+            'corrected': correction.get('corrected'),
+            'explanation': correction.get('explanation'),
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    # Prepare hints data for response (if hints found)
+    hints_data = None
+    if hints_result.get('has_hints') and hints_result.get('hints'):
+        hints_data = {
+            'message': user_message,
+            'hints': hints_result.get('hints', []),
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    # Return everything in one response - include all corrections and hints for this conversation
     return jsonify({
         'response': ai_response,
-        'correction': correction if correction.get('has_errors') else None,
+        'correction': correction_data,  # New correction from this message (if any)
+        'hints': hints_data,  # New hints from this message (if any)
+        'all_corrections': conv.get('corrections', []),  # Full history
+        'all_hints': conv.get('hints', []),  # Full history
         'messages': conv['messages']
     })
 
@@ -99,26 +149,47 @@ def practice():
 
 @app.route('/api/translate', methods=['POST'])
 def translate():
-    """Translate an English phrase to the target language"""
+    """Translate between English and target language (bidirectional)"""
     data = request.json
-    english_phrase = data.get('phrase', '')
+    phrase = data.get('phrase', '')
     target_language = data.get('language', 'es')
+    direction = data.get('direction', 'en-to-target')
     
-    if not english_phrase:
+    if not phrase:
         return jsonify({'error': 'No phrase provided'}), 400
     
-    # Use the SLM to translate
-    system_prompt = f"""You are a professional translator. Translate the following English phrase into {target_language}. 
-    Provide a natural, conversational translation that a native speaker would use. 
-    Do not provide explanations, only the translation."""
+    # Language names for prompts
+    language_names = {
+        'es': 'Spanish',
+        'fr': 'French',
+        'de': 'German',
+        'it': 'Italian'
+    }
+    lang_name = language_names.get(target_language, target_language)
+    
+    # Determine translation direction
+    if direction == 'en-to-target':
+        # English to target language
+        system_prompt = f"""You are a professional translator. Translate the following English phrase into {lang_name}. 
+        Provide a natural, conversational translation that a native speaker would use. 
+        Do not provide explanations, only the translation."""
+        user_prompt = f"Translate this to {lang_name}: {phrase}"
+        response_language = target_language
+    else:
+        # Target language to English
+        system_prompt = f"""You are a professional translator. Translate the following {lang_name} phrase into English. 
+        Provide a natural, conversational translation that a native English speaker would use. 
+        Do not provide explanations, only the translation."""
+        user_prompt = f"Translate this {lang_name} phrase to English: {phrase}"
+        response_language = 'en'
     
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Translate this to {target_language}: {english_phrase}"}
+        {"role": "user", "content": user_prompt}
     ]
     
     try:
-        translation = ollama.chat(messages, target_language)
+        translation = ollama.chat(messages, response_language)
         return jsonify({'translation': translation.strip()})
     except Exception as e:
         return jsonify({'error': f'Translation failed: {str(e)}'}), 500

@@ -19,11 +19,17 @@
                     <option value="de">German</option>
                     <option value="it">Italian</option>
                 </select>
-                <button hx-post="/api/save" 
-                        hx-vals='{"session_id": "default"}' 
+                <select id="tone-select">
+                    <option value="friendly">Friendly</option>
+                    <option value="professional">Professional</option>
+                    <option value="flirty">Flirty</option>
+                </select>
+                <button id="save-btn" 
+                        hx-post="/api/save" 
                         hx-headers='{"Content-Type": "application/json"}'
                         hx-target="#save-status"
                         class="save-btn">Save Conversation</button>
+                <button onclick="startNewConversation()" class="new-conversation-btn">New Conversation</button>
                 <span id="save-status"></span>
             </div>
             
@@ -37,12 +43,6 @@
                 <input type="text" 
                        id="chat-input" 
                        placeholder="Type your message..."
-                       hx-post="/api/chat"
-                       hx-trigger="keydown[key=='Enter']"
-                       hx-target="#chat-messages"
-                       hx-swap="beforeend"
-                       hx-vals='{"session_id": "default", "message": "", "language": ""}'
-                       hx-include="#language-select"
                        name="message">
                 <button id="send-button" onclick="sendMessage()">
                     <span id="send-text">Send</span>
@@ -54,11 +54,8 @@
         <!-- Corrections Panel -->
         <div class="corrections-panel">
             <h3>Learning Points and Hints</h3>
-            <div id="corrections-list" 
-                 hx-get="/api/corrections?session_id=default"
-                 hx-trigger="load, every 2s"
-                 hx-swap="innerHTML">
-                <p class="empty-state">No corrections yet. Keep practicing!</p>
+            <div id="corrections-list">
+                <p class="empty-state">No learning points yet. Keep practicing!</p>
             </div>
         </div>
         
@@ -78,7 +75,11 @@
             
             <!-- Bottom Section: Translation -->
             <div class="practice-section practice-section-bottom">
-                <p class="hint">Translate from English</p>
+                <p class="hint">Translation</p>
+                <select id="translation-direction" onchange="updateTranslationPlaceholder()">
+                    <option value="en-to-target">English → Target Language</option>
+                    <option value="target-to-en">Target Language → English</option>
+                </select>
                 <textarea id="translation-input" 
                           placeholder="Enter an English phrase..."
                           rows="3"></textarea>
@@ -89,11 +90,66 @@
     </div>
     
     <script>
-        let sessionId = 'default';
+        // Generate a unique session ID on page load
+        let sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        
+        // Function to start a new conversation
+        function startNewConversation() {
+            sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            // Clear the chat messages
+            document.getElementById('chat-messages').innerHTML = '<div class="welcome-message"><p>Start a conversation in your target language! I\'ll help you practice.</p></div>';
+            // Clear corrections/hints
+            document.getElementById('corrections-list').innerHTML = '<p class="empty-state">No learning points yet. Keep practicing!</p>';
+            // Update HTMX attributes with new session ID
+            updateSessionInHTMX();
+        }
+        
+        // Update HTMX attributes with current session ID (for save button)
+        function updateSessionInHTMX() {
+            const sessionData = JSON.stringify({session_id: sessionId});
+            
+            // Update save button
+            const saveBtn = document.getElementById('save-btn');
+            if (saveBtn) {
+                saveBtn.setAttribute('hx-vals', sessionData);
+            }
+        }
+        
+        // Load initial corrections and hints on page load
+        function loadInitialLearningPoints() {
+            fetch(`/api/corrections?session_id=${sessionId}`)
+                .then(r => r.text())
+                .then(html => {
+                    document.getElementById('corrections-list').innerHTML = html;
+                })
+                .catch(err => {
+                    console.error('Error loading learning points:', err);
+                });
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            updateSessionInHTMX();
+            loadInitialLearningPoints();
+            
+            // Allow Enter to send
+            document.getElementById('chat-input').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+            
+            // Update translation placeholder when language changes
+            document.getElementById('language-select').addEventListener('change', function() {
+                updateTranslationPlaceholder();
+            });
+        });
         
         function sendMessage() {
             const input = document.getElementById('chat-input');
             const language = document.getElementById('language-select').value;
+            const tone = document.getElementById('tone-select').value;
             const message = input.value.trim();
             const sendButton = document.getElementById('send-button');
             const sendText = document.getElementById('send-text');
@@ -113,7 +169,8 @@
                 body: JSON.stringify({
                     session_id: sessionId,
                     message: message,
-                    language: language
+                    language: language,
+                    tone: tone
                 })
             })
             .then(r => r.json())
@@ -125,13 +182,8 @@
                 // Add AI response
                 setTimeout(() => addMessage('assistant', data.response), 500);
                 
-                // Show correction if any
-                if (data.correction) {
-                    showCorrection(data.correction);
-                }
-                
-                // Refresh corrections
-                htmx.trigger('#corrections-list', 'refresh');
+                // Render all corrections and hints from the response
+                renderLearningPoints(data.all_corrections || [], data.all_hints || []);
             })
             .catch(error => {
                 console.error('Error:', error);
@@ -156,16 +208,85 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
         
-        function showCorrection(correction) {
+        function renderLearningPoints(corrections, hints) {
             const correctionsDiv = document.getElementById('corrections-list');
-            const correctionDiv = document.createElement('div');
-            correctionDiv.className = 'correction-item';
-            correctionDiv.innerHTML = `
-                <div class="original">${escapeHtml(correction.message || '')}</div>
-                <div class="corrected">✓ ${escapeHtml(correction.corrected || '')}</div>
-                <div class="explanation">${escapeHtml(correction.explanation || '')}</div>
-            `;
-            correctionsDiv.insertBefore(correctionDiv, correctionsDiv.firstChild);
+            
+            if (corrections.length === 0 && hints.length === 0) {
+                correctionsDiv.innerHTML = '<p class="empty-state">No learning points yet. Keep practicing!</p>';
+                return;
+            }
+            
+            // Combine corrections and hints, sorted by timestamp (most recent first)
+            const allItems = [];
+            
+            corrections.forEach(corr => {
+                allItems.push({
+                    type: 'correction',
+                    timestamp: corr.timestamp || '',
+                    data: corr
+                });
+            });
+            
+            hints.forEach(hint => {
+                allItems.push({
+                    type: 'hint',
+                    timestamp: hint.timestamp || '',
+                    data: hint
+                });
+            });
+            
+            // Sort by timestamp, most recent first
+            allItems.sort((a, b) => {
+                if (!a.timestamp) return 1;
+                if (!b.timestamp) return -1;
+                return b.timestamp.localeCompare(a.timestamp);
+            });
+            
+            // Render all items
+            let html = '';
+            allItems.forEach(item => {
+                if (item.type === 'correction') {
+                    const corr = item.data;
+                    const original = escapeHtml(corr.message || '');
+                    const corrected = escapeHtml(corr.corrected || '');
+                    let explanation = corr.explanation || '';
+                    
+                    // Handle explanation as string or list
+                    if (Array.isArray(explanation)) {
+                        explanation = explanation.map(e => escapeHtml(String(e))).join('<br>');
+                    } else {
+                        explanation = escapeHtml(String(explanation));
+                    }
+                    
+                    html += `
+                        <div class="correction-item">
+                            <div class="item-label">Correction</div>
+                            <div class="original">${original}</div>
+                            <div class="corrected">✓ ${corrected}</div>
+                            <div class="explanation">${explanation}</div>
+                        </div>
+                    `;
+                } else {
+                    const hint = item.data;
+                    const message = escapeHtml(hint.message || '');
+                    const hintsList = hint.hints || [];
+                    
+                    let hintsHtml = '';
+                    hintsList.forEach(hintText => {
+                        hintsHtml += `<li>${escapeHtml(String(hintText))}</li>`;
+                    });
+                    
+                    html += `
+                        <div class="hint-item">
+                            <div class="item-label">Hint</div>
+                            <div class="hint-message">${message}</div>
+                            <ul class="hints-list">${hintsHtml}</ul>
+                        </div>
+                    `;
+                }
+            });
+            
+            correctionsDiv.innerHTML = html;
         }
         
         function checkPractice() {
@@ -200,12 +321,32 @@
             });
         }
         
+        function updateTranslationPlaceholder() {
+            const direction = document.getElementById('translation-direction').value;
+            const textarea = document.getElementById('translation-input');
+            const language = document.getElementById('language-select').value;
+            const languageNames = {
+                'es': 'Spanish',
+                'fr': 'French',
+                'de': 'German',
+                'it': 'Italian'
+            };
+            const langName = languageNames[language] || 'Target Language';
+            
+            if (direction === 'en-to-target') {
+                textarea.placeholder = 'Enter an English phrase...';
+            } else {
+                textarea.placeholder = `Enter a ${langName} phrase...`;
+            }
+        }
+        
         function translatePhrase() {
             const textarea = document.getElementById('translation-input');
             const language = document.getElementById('language-select').value;
-            const englishPhrase = textarea.value.trim();
+            const direction = document.getElementById('translation-direction').value;
+            const phrase = textarea.value.trim();
             
-            if (!englishPhrase) return;
+            if (!phrase) return;
             
             const resultDiv = document.getElementById('translation-result');
             resultDiv.innerHTML = '<div class="practice-loading">Translating...</div>';
@@ -213,7 +354,11 @@
             fetch('/api/translate', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({phrase: englishPhrase, language})
+                body: JSON.stringify({
+                    phrase: phrase,
+                    language: language,
+                    direction: direction
+                })
             })
             .then(r => r.json())
             .then(data => {
@@ -246,14 +391,6 @@
             div.textContent = text;
             return div.innerHTML;
         }
-        
-        // Allow Enter to send
-        document.getElementById('chat-input').addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
     </script>
 </body>
 </html>
