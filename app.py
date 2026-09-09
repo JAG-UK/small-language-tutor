@@ -18,11 +18,17 @@ app = Flask(__name__)
 # which ones are worth using.
 MODEL = os.environ.get("SLT_MODEL", "phi4-mini:3.8b")
 
-# The critic never speaks to the learner and never holds up the reply, so it
-# can be a slower and more careful model than the one making conversation —
-# two jobs that want different things from a model. Both default to the same
-# one, because two models means two lots of weights resident at once, which on
-# a laptop is the thing most likely to make this worse rather than better.
+# The critic never speaks to the learner and never holds up the reply, so it can
+# be a slower and more careful model than the one making conversation — two jobs
+# that want different things from a model.
+#
+# Worth setting: measured over 11 sentences x 3 trials, phi4-mini:3.8b caught
+# 11 of 21 errors where translategemma:12b caught 20 and left every correct
+# sentence alone. In an app whose point is catching mistakes, the default is the
+# weakest link. It stays the default only because two models means two lots of
+# weights resident, which on a small laptop is the thing most likely to make
+# this worse rather than better. See "Choosing models" in the README, and
+# tools/compare_models.py to check any of it on your own machine.
 CRITIC_MODEL = os.environ.get("SLT_CRITIC_MODEL", MODEL)
 
 ollama = OllamaClient(model=MODEL)

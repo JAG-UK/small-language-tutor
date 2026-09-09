@@ -14,7 +14,13 @@ that matter to this app:
   transcript instead of the reply.
 * **Whether it thinks first.** Reasoning models emit a chain of thought before
   answering, which is wasted on a chat reply and costs a lot of wall-clock —
-  qwen3.5:9b took 70s on a sentence phi4-mini answered in 1s.
+  qwen3.5:9b took 137s on a sentence phi4-mini answered in 1s.
+
+What a family is *good at* is deliberately not encoded here, because measuring
+it went the opposite way to the obvious guess: translategemma, named for one
+job, turned out to be the best grammar critic of the lot and a perfectly good
+conversationalist. Run tools/compare_models.py rather than reasoning from the
+name.
 
 Add a family by adding a row to FAMILIES. The default is deliberately
 conservative: assume a system role works and keep the prompt short, which is
@@ -39,8 +45,6 @@ class ModelProfile:
     history_messages: int = 10
     #: Emits a chain of thought before answering; slow for interactive use.
     reasoning: bool = False
-    #: A translation specialist rather than a conversationalist.
-    translation_only: bool = False
     #: Shown in the UI and the README when explaining a choice.
     note: str = ""
 
@@ -55,9 +59,9 @@ FAMILIES: list[tuple[str, ModelProfile]] = [
             supports_system_role=False,  # Gemma 3 underneath
             terse=True,
             history_messages=4,
-            translation_only=True,
-            note="Purpose-built translator. Excellent for the translate box, "
-            "poor as a conversation partner or a grammar tutor.",
+            note="Trained on translation, and much the best grammar critic "
+            "measured here — see tools/compare_models.py. Holds a conversation "
+            "perfectly well too, despite the name.",
         ),
     ),
     (

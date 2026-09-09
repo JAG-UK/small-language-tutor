@@ -28,10 +28,9 @@ class TestRecognisingAFamily:
         assert profile_for("gemma4:26b").supports_system_role is True
         assert profile_for("gemma2:27b").supports_system_role is False
 
-    def test_translategemma_is_a_translator_first_and_a_gemma_second(self):
-        profile = profile_for("translategemma:12b")
-        assert profile.translation_only is True
-        assert profile.supports_system_role is False  # still Gemma underneath
+    def test_translategemma_is_still_a_gemma_underneath(self):
+        # Whatever it is trained for, it inherits Gemma 3's lack of a system turn.
+        assert profile_for("translategemma:12b").supports_system_role is False
 
     def test_a_reasoning_model_is_flagged_as_such(self):
         assert profile_for("qwen3.5:9b").reasoning is True
