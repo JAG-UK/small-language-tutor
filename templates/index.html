@@ -215,10 +215,10 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({session_id: sessionId, turn: turn})
             })
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-                if (data) {
-                    renderLearningPoints(data.all_corrections || [], data.all_hints || []);
+            .then(r => r.ok ? r.text() : null)
+            .then(html => {
+                if (html !== null) {
+                    document.getElementById('corrections-list').innerHTML = html;
                 }
             })
             .catch(error => console.error('Review failed:', error))
@@ -232,96 +232,6 @@
             msgDiv.innerHTML = `<div class="message-content">${escapeHtml(content)}</div>`;
             messagesDiv.appendChild(msgDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-        
-        function renderLearningPoints(corrections, hints) {
-            const correctionsDiv = document.getElementById('corrections-list');
-            
-            if (corrections.length === 0 && hints.length === 0) {
-                correctionsDiv.innerHTML = '<p class="empty-state">No learning points yet. Keep practicing!</p>';
-                return;
-            }
-            
-            // Combine corrections and hints, sorted by timestamp (most recent first)
-            const allItems = [];
-            
-            corrections.forEach(corr => {
-                allItems.push({
-                    type: 'correction',
-                    timestamp: corr.timestamp || '',
-                    data: corr
-                });
-            });
-            
-            hints.forEach(hint => {
-                allItems.push({
-                    type: 'hint',
-                    timestamp: hint.timestamp || '',
-                    data: hint
-                });
-            });
-            
-            // Sort by timestamp, most recent first
-            allItems.sort((a, b) => {
-                if (!a.timestamp) return 1;
-                if (!b.timestamp) return -1;
-                return b.timestamp.localeCompare(a.timestamp);
-            });
-            
-            // Render all items
-            let html = '';
-            allItems.forEach(item => {
-                if (item.type === 'correction') {
-                    const corr = item.data;
-                    const original = escapeHtml(corr.message || '');
-                    const corrected = escapeHtml(corr.corrected || '');
-                    let explanation = corr.explanation || '';
-                    
-                    // Handle explanation as string or list
-                    if (Array.isArray(explanation)) {
-                        explanation = explanation.map(e => escapeHtml(String(e))).join('<br>');
-                    } else {
-                        explanation = escapeHtml(String(explanation));
-                    }
-                    
-                    html += `
-                        <div class="correction-item">
-                            <div class="item-label">Correction</div>
-                            <div class="original">${original}</div>
-                            <div class="corrected">✓ ${corrected}</div>
-                            <div class="explanation">${explanation}</div>
-                        </div>
-                    `;
-                } else {
-                    const hint = item.data;
-                    const message = escapeHtml(hint.message || '');
-                    const hintsList = hint.hints || [];
-                    
-                    let hintsHtml = '';
-                    hintsList.forEach(hint => {
-                        // Conversations saved before hints were split into a
-                        // suggestion and a reason carry plain strings.
-                        if (hint && typeof hint === 'object') {
-                            hintsHtml += `<li>` +
-                                `<span class="hint-suggestion">${escapeHtml(String(hint.suggestion || ''))}</span>` +
-                                `<span class="hint-why">${escapeHtml(String(hint.why || ''))}</span>` +
-                                `</li>`;
-                        } else {
-                            hintsHtml += `<li>${escapeHtml(String(hint))}</li>`;
-                        }
-                    });
-                    
-                    html += `
-                        <div class="hint-item">
-                            <div class="item-label">Hint</div>
-                            <div class="hint-message">${message}</div>
-                            <ul class="hints-list">${hintsHtml}</ul>
-                        </div>
-                    `;
-                }
-            });
-            
-            correctionsDiv.innerHTML = html;
         }
         
         function checkPractice() {

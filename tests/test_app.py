@@ -65,11 +65,19 @@ class TestTheCritiqueThatFollows:
     def review(self, client, turn, session="s1"):
         return client.post("/api/review", json={"session_id": session, "turn": turn})
 
-    def test_returns_the_learning_points_for_that_turn(self, client):
+    def test_returns_the_panel_for_that_turn(self, client):
         turn = send(client, "hola")["turn"]
-        body = self.review(client, turn).get_json()
-        assert body["correction"]["corrected"] == "HOLA"
-        assert body["hints"]["hints"] == ["try it another way"]
+        panel = self.review(client, turn).get_data(as_text=True)
+        assert "HOLA" in panel
+        assert "try it another way" in panel
+
+    def test_answers_with_the_panel_rather_than_its_ingredients(self, client):
+        """The page used to be sent the data and build the panel itself, which
+        meant two renderers that had to agree about the shape of a hint. When
+        the shape changed, every already-open browser drew "[object Object]"."""
+        response = self.review(client, send(client, "hola")["turn"])
+        assert "text/html" in response.content_type
+        assert response.get_data(as_text=True).lstrip().startswith("<")
 
     def test_judges_the_named_turn_not_the_latest_one(self, client):
         first = send(client, "hola")["turn"]
@@ -88,14 +96,14 @@ class TestTheCritiqueThatFollows:
 
     def test_accumulates_across_the_conversation(self, client):
         self.review(client, send(client, "hola")["turn"])
-        body = self.review(client, send(client, "adiós")["turn"]).get_json()
-        assert [c["message"] for c in body["all_corrections"]] == ["hola", "adiós"]
+        panel = self.review(client, send(client, "adiós")["turn"]).get_data(as_text=True)
+        assert "HOLA" in panel and "ADIÓS" in panel
 
     def test_reviewing_a_turn_twice_does_not_file_it_twice(self, client):
         turn = send(client, "hola")["turn"]
         self.review(client, turn)
-        body = self.review(client, turn).get_json()
-        assert len(body["all_corrections"]) == 1
+        panel = self.review(client, turn).get_data(as_text=True)
+        assert panel.count("HOLA") == 1
         assert len(client.calls["check"]) == 1
 
     def test_uses_the_language_and_tone_the_turn_was_sent_with(self, client):
@@ -110,9 +118,8 @@ class TestTheCritiqueThatFollows:
                                              "explanation": ""})
         monkeypatch.setattr(app_module.grammar_checker, "get_hints",
                             lambda *a, **k: {"has_hints": False, "hints": []})
-        body = self.review(client, send(client, "hola")["turn"]).get_json()
-        assert body["correction"] is None and body["hints"] is None
-        assert body["all_corrections"] == [] and body["all_hints"] == []
+        panel = self.review(client, send(client, "hola")["turn"]).get_data(as_text=True)
+        assert "No learning points yet" in panel
 
 
 class TestWhenThereIsNothingToReview:
@@ -134,3 +141,48 @@ class TestWhenThereIsNothingToReview:
     def test_the_model_s_own_turn_is_not_the_learner_s_to_answer_for(self, client):
         send(client, "hola")  # turn 1 is the reply
         assert client.post("/api/review", json={"session_id": "s1", "turn": 1}).status_code == 400
+
+
+class TestTheOneRenderer:
+    """The panel is built in exactly one place now. These are the shapes it has
+    to cope with, including ones written by older versions of the app."""
+
+    def panel(self, corrections=(), hints=()):
+        return app_module.render_learning_points(
+            {"corrections": list(corrections), "hints": list(hints)}
+        )
+
+    def test_an_empty_conversation_says_so(self):
+        assert "No learning points yet" in self.panel()
+
+    def test_a_missing_conversation_is_not_a_crash(self):
+        # The page asks on load, before anything has been said.
+        assert "No learning points yet" in app_module.render_learning_points(None)
+
+    def test_shows_a_hint_as_a_suggestion_and_a_reason(self):
+        panel = self.panel(hints=[{"message": "hola", "timestamp": "t", "hints": [
+            {"suggestion": "¿Qué tal?", "why": "Warmer between friends."}]}])
+        assert "¿Qué tal?" in panel
+        assert "Warmer between friends." in panel
+
+    def test_still_renders_hints_saved_in_the_old_flat_shape(self):
+        # Conversations in the database predate the split into two fields.
+        panel = self.panel(hints=[{"message": "hola", "timestamp": "t",
+                                   "hints": ["Try 'qué tal'"]}])
+        assert "Try &#x27;qué tal&#x27;" in panel or "Try 'qué tal'" in panel
+        assert "object Object" not in panel
+
+    def test_escapes_what_the_learner_typed(self):
+        panel = self.panel(corrections=[{"message": "<script>alert(1)</script>",
+                                         "corrected": "x", "explanation": "y", "timestamp": "t"}])
+        assert "<script>" not in panel
+        assert "&lt;script&gt;" in panel
+
+    def test_puts_the_newest_first(self):
+        panel = self.panel(
+            corrections=[{"message": "older", "corrected": "OLDER", "explanation": "",
+                          "timestamp": "2026-01-01T00:00:00"}],
+            hints=[{"message": "newer", "timestamp": "2026-06-01T00:00:00",
+                    "hints": [{"suggestion": "s", "why": "w"}]}],
+        )
+        assert panel.index("newer") < panel.index("older")

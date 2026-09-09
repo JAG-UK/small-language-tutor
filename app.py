@@ -56,13 +56,6 @@ def _new_conversation(language, tone):
     }
 
 
-def _learning_points(conv):
-    return {
-        'all_corrections': conv.get('corrections', []),
-        'all_hints': conv.get('hints', []),
-    }
-
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -141,7 +134,7 @@ def review():
         return jsonify({'error': 'Only the learner\'s own turns are reviewed'}), 400
 
     if turn in conv['reviewed']:
-        return jsonify({'correction': None, 'hints': None, **_learning_points(conv)})
+        return render_learning_points(conv)
     conv['reviewed'].add(turn)
 
     text = message['content']
@@ -152,31 +145,23 @@ def review():
     context = conv['messages'][: turn + 1]
 
     correction = grammar_checker.check_message(text, context, language, tone)
-    correction_data = None
     if correction.get('has_errors'):
-        correction_data = {
+        conv['corrections'].append({
             'message': text,
             'corrected': correction.get('corrected'),
             'explanation': correction.get('explanation'),
             'timestamp': datetime.now().isoformat(),
-        }
-        conv['corrections'].append(correction_data)
+        })
 
     hints_result = grammar_checker.get_hints(text, context, language, tone)
-    hints_data = None
     if hints_result.get('has_hints') and hints_result.get('hints'):
-        hints_data = {
+        conv['hints'].append({
             'message': text,
             'hints': hints_result.get('hints', []),
             'timestamp': datetime.now().isoformat(),
-        }
-        conv['hints'].append(hints_data)
+        })
 
-    return jsonify({
-        'correction': correction_data,  # new from this turn, if any
-        'hints': hints_data,
-        **_learning_points(conv),  # the full history, for redrawing the panel
-    })
+    return render_learning_points(conv)
 
 @app.route('/api/practice', methods=['POST'])
 def practice():
@@ -213,16 +198,20 @@ def translate():
     except Exception as e:
         return jsonify({'error': f'Translation failed: {str(e)}'}), 500
 
-@app.route('/api/corrections', methods=['GET'])
-def get_corrections():
-    """Get corrections and hints for current conversation"""
-    session_id = request.args.get('session_id', 'default')
-    corrections = []
-    hints = []
-    if session_id in conversations:
-        corrections = conversations[session_id].get('corrections', [])
-        hints = conversations[session_id].get('hints', [])
-    
+def render_learning_points(conv):
+    """The learning panel, as HTML.
+
+    There is one of these, on purpose. The panel used to be built twice — here,
+    and again in JavaScript in the page — and the two had to agree about the
+    shape of a correction and a hint. When that shape changed, every browser
+    already holding the old page rendered "[object Object]" until it was
+    reloaded, which is not a thing a server-rendered app should be able to do to
+    itself. The page now displays what this returns and knows nothing about the
+    shape.
+    """
+    corrections = (conv or {}).get('corrections', [])
+    hints = (conv or {}).get('hints', [])
+
     if not corrections and not hints:
         return '<p class="empty-state">No learning points yet. Keep practicing!</p>'
     
@@ -292,6 +281,12 @@ def get_corrections():
             '''
     
     return html_output
+
+
+@app.route('/api/corrections', methods=['GET'])
+def get_corrections():
+    """The learning panel for a conversation, for the page to show on load."""
+    return render_learning_points(conversations.get(request.args.get('session_id', 'default')))
 
 @app.route('/api/save', methods=['POST'])
 def save_conversation():
