@@ -7,7 +7,8 @@ Language learning reinforcement app based on local small language models.
 - **Interactive Chat**: Practice conversations in your target language with an AI tutor
 - **Grammar Corrections**: Real-time feedback on mistakes with explanations
 - **Practice Area**: Test sentences before sending them to the conversation
-- **Conversation History**: Save and review past conversations with corrections
+- **Conversation History**: Every turn is saved as it happens; reopen any past
+  conversation, with its corrections, and carry on from where you left off
 
 ## Setup
 
@@ -94,7 +95,8 @@ machine](#reaching-it-from-another-machine).
 | `SLT_PASSWORD` | unset | required before anything is served; mandatory off loopback |
 | `SLT_HOST` | `127.0.0.1` | where to bind. Anything else needs a password |
 | `SLT_PORT` | `5001` | 5000 collides with macOS AirPlay Receiver |
-| `SLT_DEBUG` | off | the Werkzeug debugger. Loopback only — it runs what it is sent |
+| `SLT_DB` | `database.db` beside `app.py` | where conversations are kept |
+| `SLT_DEBUG` | off | the Werkzeug debugger, and reloading on edit. Loopback only — it runs what it is sent |
 
 ## Choosing models
 
@@ -300,6 +302,10 @@ whatever is sent to it. That is fine on loopback and catastrophic anywhere else,
 so it is off by default and refused off-loopback. It used to be on, on every
 interface.
 
+It is also what makes the server pick up edits. With it off, Flask caches
+templates for the life of the process, so a change to `index.html` does nothing
+until a restart — set it while working on the app, and leave it off otherwise.
+
 If you do want this on the open internet rather than through a tunnel, put a
 reverse proxy with TLS in front of it and point that at the loopback port. Basic
 auth over plain HTTP sends the password merely encoded.
@@ -318,6 +324,25 @@ This is a personal tool, not a service.
 - **Database**: SQLite
 - **SLM**: Ollama API integration
 - **Future**: Architecture supports voice conversations (to be implemented)
+
+### Conversations keep themselves
+
+Every turn is written to SQLite as it happens, so nothing depends on remembering
+to save: close the laptop, drop the tunnel, restart the server, and the
+conversation is still there. **Conversations** lists them; opening one puts it
+back on the server as well as on screen, so the partner still has the history
+and you can carry on rather than only read it. Reopening does not re-mark
+anything already marked.
+
+The database is at `database.db` beside `app.py`, or wherever `SLT_DB` says.
+Beside the file rather than in the working directory, because a relative path
+silently gives you a different database when the app is started from somewhere
+else.
+
+Columns the model gains are added to an existing database at startup.
+`create_all()` creates missing tables and stops there, so `hints` — added to the
+model after the file existed — was simply absent, and every save failed with
+`no such column: conversations.hints`.
 
 ### A turn is two requests
 
@@ -344,7 +369,8 @@ one.
 ```
 small-language-tutor/
 ├── app.py                 # Flask backend server
-├── models.py              # Database models
+├── models.py              # The conversations table, and keeping it up to date
+├── store.py               # Saving, reopening, listing and deleting
 ├── ollama_client.py       # SLM integration wrapper
 ├── grammar_checker.py     # Corrections and hints, and the guards on them
 ├── prompts.py             # Everything the models are asked, in one place

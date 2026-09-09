@@ -37,11 +37,17 @@ body {
     display: flex;
     align-items: center;
     gap: 1rem;
+    /* Wrap rather than overflow. Without this the header is wider than the
+       panel on a narrow window, and clicking a button scrolls the whole panel
+       sideways to reach it, cutting the transcript off at the left edge. */
+    flex-wrap: wrap;
 }
 
 .chat-header h2 {
     flex: 1;
     font-size: 1.2rem;
+    /* Give up width before the controls do. */
+    min-width: 0;
 }
 
 #language-select, #tone-select, #translation-direction {
@@ -258,6 +264,65 @@ body {
     color: #999;
     text-align: center;
     padding: 2rem;
+}
+
+/* The saved conversations, dropped over the transcript. Every turn is written
+   through as it happens, so this is history rather than a list of things kept. */
+.conversation-list {
+    max-height: 60%;
+    overflow-y: auto;
+    border-bottom: 1px solid #e0e0e0;
+    background: #fafafa;
+}
+
+.conversation-item {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid #eee;
+}
+
+.conversation-open {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.6rem 0.9rem;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    min-width: 0;
+}
+
+.conversation-open:hover {
+    background: #f0f4ff;
+}
+
+.conversation-title {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-meta {
+    font-size: 0.8rem;
+    color: #888;
+}
+
+.conversation-delete {
+    padding: 0 0.9rem;
+    background: none;
+    border: none;
+    color: #bbb;
+    font-size: 1.2rem;
+    cursor: pointer;
+}
+
+.conversation-delete:hover {
+    color: #d33;
 }
 
 /* A hint is the phrase to use, in the language being learned, and one line of
