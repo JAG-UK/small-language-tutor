@@ -72,6 +72,15 @@ class TestTheCorrector:
         detailed = text_of(correction_messages(DETAILED, "es", "friendly", "hola"))
         assert len(terse) < len(detailed) / 2
 
+    @pytest.mark.parametrize("profile", [TERSE, DETAILED])
+    def test_asks_for_a_short_explanation(self, profile):
+        """A long explanation does not arrive in full: the schema lets the model
+        close the string wherever it likes, and translategemma:12b was ending
+        mid-sentence on the longer ones. Brevity is what keeps them whole."""
+        prompt = text_of(correction_messages(profile, "es", "friendly", "hola")).lower()
+        assert "one short sentence" in prompt
+        assert "no introduction" in prompt
+
     def test_folds_the_instruction_in_for_a_family_without_a_system_turn(self):
         messages = correction_messages(NO_SYSTEM, "es", "friendly", "hola")
         assert len(messages) == 1
@@ -116,8 +125,21 @@ class TestGivingTheCriticContext:
         context_turn = [m for m in messages if m["content"] == "¿Dónde vives?"]
         assert context_turn, "the earlier turn should be its own message"
         assert context_turn[0]["role"] == "assistant"
-        # ...and the turn being judged is the last word, on its own.
-        assert messages[-1]["content"].endswith("Sí, en Madrid")
+        # ...and the turn being judged is in the final message, after them all.
+        assert "Sí, en Madrid" in messages[-1]["content"]
+        assert messages[-1]["role"] == "user"
+
+    @pytest.mark.parametrize(
+        "builder,wanted",
+        [(correction_messages, "in English"), (hints_messages, "in English")],
+    )
+    def test_repeats_the_language_rule_after_the_transcript(self, builder, wanted):
+        """The transcript sits between the system prompt and the answer, and a
+        small model replies in the language it has just been reading: phi4-mini
+        explained in Spanish on 3 of 6 mid-conversation hints until the rule was
+        repeated at the end."""
+        messages = builder(TERSE, "es", "friendly", "Sí, en Madrid", self.history)
+        assert wanted in messages[-1]["content"]
 
     def test_tells_the_model_the_conversation_is_not_its_to_correct(self):
         with_context = text_of(

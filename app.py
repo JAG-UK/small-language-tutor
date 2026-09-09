@@ -1,6 +1,7 @@
 import html
 import json
 import os
+import re
 from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
@@ -198,6 +199,27 @@ def translate():
     except Exception as e:
         return jsonify({'error': f'Translation failed: {str(e)}'}), 500
 
+#: The bullet a model puts at the start of a line: "- ", "*   ", "• ".
+_LEADING_BULLET = re.compile(r"^[-*\u2022]+\s+")
+
+
+def explanation_lines(text):
+    """An explanation as the lines it was actually written as.
+
+    Asked what changed, a model answers with a markdown list — a lead-in, then
+    one point per line, each opening with a bullet. HTML collapses the newlines,
+    so it all arrived as a single run-on paragraph with stray asterisks in it.
+    The bullets go (the panel makes its own), the line breaks stay.
+    """
+    lines = []
+    for line in (text or "").splitlines():
+        line = _LEADING_BULLET.sub("", line).strip()
+        # A bullet with nothing after it: a point the model opened and dropped.
+        if line and line.strip("-*\u2022 "):
+            lines.append(line)
+    return lines
+
+
 def render_learning_points(conv):
     """The learning panel, as HTML.
 
@@ -241,12 +263,13 @@ def render_learning_points(conv):
             original = html.escape(str(corr.get('message', '')))
             corrected = html.escape(str(corr.get('corrected', '')))
             explanation_raw = corr.get('explanation', '')
-            
-            # Handle explanation as string or list
-            if isinstance(explanation_raw, list):
-                explanation = '<br>'.join([html.escape(str(item)) for item in explanation_raw])
-            else:
-                explanation = html.escape(str(explanation_raw))
+            # Saved conversations may hold a list; models write one anyway,
+            # flattened into a single string.
+            if not isinstance(explanation_raw, list):
+                explanation_raw = explanation_lines(explanation_raw)
+            explanation = '<br>'.join(
+                html.escape(str(line)) for line in explanation_raw if str(line).strip()
+            )
             
             html_output += f'''
             <div class="correction-item">

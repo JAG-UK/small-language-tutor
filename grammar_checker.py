@@ -65,14 +65,15 @@ def _unmarkdown(text):
     """Strip emphasis markers from a sentence meant to be read as plain text.
 
     Models reach for markdown unprompted — translategemma:12b italicises book
-    titles as *Don Quijote*, and has been seen to bold a whole correction. The
+    titles as *Don Quijote*, phi4-mini quotes words as `ameliorar`, and both
+    have been seen to bold a whole correction. The
     panel shows the sentence as-is, so the asterisks arrive as asterisks and the
     learner is quietly taught to type them.
     """
     # The markers only count at the edges of a word: "una nota_al_pie" is a word
     # with underscores in it, not emphasis, and unwrapping it loses letters.
     return re.sub(
-        r"(?<![\w*_])(\*{1,3}|_{1,3})(\S(?:.*?\S)?)\1(?![\w*_])", r"\2", text or ""
+        r"(?<![\w*_`])(\*{1,3}|_{1,3}|`{1,3})(\S(?:.*?\S)?)\1(?![\w*_`])", r"\2", text or ""
     )
 
 

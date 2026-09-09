@@ -186,3 +186,54 @@ class TestTheOneRenderer:
                     "hints": [{"suggestion": "s", "why": "w"}]}],
         )
         assert panel.index("newer") < panel.index("older")
+
+
+class TestExplanationsThatAreReallyLists:
+    """Asked what changed, a model answers with a markdown list: a lead-in, then
+    one point per line, each opening with a bullet. HTML collapses newlines, so
+    it all arrived as one run-on paragraph with stray asterisks in it."""
+
+    LIST = (
+        "Here's a breakdown of the changes:\n"
+        "\n"
+        "*   \"ameliorar\" changed to \"mejorar\": a French word.\n"
+        "*   \"un buen idea\" changed to \"una buena idea\": idea is feminine.\n"
+    )
+
+    def test_keeps_the_lines_and_drops_the_bullets(self):
+        assert app_module.explanation_lines(self.LIST) == [
+            "Here's a breakdown of the changes:",
+            '"ameliorar" changed to "mejorar": a French word.',
+            '"un buen idea" changed to "una buena idea": idea is feminine.',
+        ]
+
+    @pytest.mark.parametrize("marker", ["-", "*", "•", "*  "])
+    def test_recognises_the_bullets_models_actually_use(self, marker):
+        text = f"{marker} first point.\n{marker} second point."
+        assert app_module.explanation_lines(text) == ["first point.", "second point."]
+
+    def test_drops_a_bullet_the_model_opened_and_abandoned(self):
+        assert app_module.explanation_lines("- a real point.\n-\n") == ["a real point."]
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "The word needs an accent.",
+            "A well-known change from A -> B.",
+            # One sentence with a dash in it is not a two-item list.
+            "Changed 'tu' to 'tú' - the pronoun takes an accent.",
+        ],
+    )
+    def test_leaves_a_single_sentence_alone(self, text):
+        assert app_module.explanation_lines(text) == [text]
+
+    def test_nothing_to_say_is_no_lines_at_all(self):
+        assert app_module.explanation_lines("") == []
+        assert app_module.explanation_lines(None) == []
+
+    def test_the_panel_puts_each_point_on_its_own_line(self):
+        panel = app_module.render_learning_points({"corrections": [{
+            "message": "m", "corrected": "c", "timestamp": "t", "explanation": self.LIST,
+        }], "hints": []})
+        assert "a French word.<br>" in panel
+        assert "*" not in panel.split("explanation")[1][:400]  # no bullets left in the markup

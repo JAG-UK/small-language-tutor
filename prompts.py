@@ -103,7 +103,8 @@ def _correction_system(profile: ModelProfile, language: str, tone: str) -> str:
             f"Fix only grammar, spelling, accents and punctuation. Keep their "
             f"meaning and sentence type: a statement stays a statement, a "
             f"question stays a question.\n"
-            f"Say exactly what you changed and why, naming the words involved. "
+            f"Say exactly what you changed and why, naming the words involved: "
+            f"one short sentence per change, no introduction and no summary.\n"
             f"If nothing is wrong, return the message unchanged.\n"
             f"The conversation is {tone} ({judged})."
         )
@@ -127,7 +128,11 @@ CRITICAL INSTRUCTIONS:
 
 Report has_errors, the corrected message, and an explanation listing ONLY the
 actual differences, numbered if there are several. If nothing is wrong, return
-the message unchanged."""
+the message unchanged.
+
+Keep the explanation to one short sentence per change, with no introduction and
+no closing summary. Length is not thoroughness here: a long explanation is cut
+off mid-sentence before the learner reaches the end of it."""
 
 
 def correction_messages(
@@ -135,8 +140,14 @@ def correction_messages(
 ):
     """Ask for a correction of one message, optionally in the light of what was
     being talked about."""
-    return _judging(profile, _correction_system(profile, language, tone),
-                    "correct this message", message, history)
+    return _judging(
+        profile,
+        _correction_system(profile, language, tone),
+        "correct this message",
+        message,
+        history,
+        reminder="Explain in English, in one short sentence per change.",
+    )
 
 
 # --- the coach -------------------------------------------------------------
@@ -188,8 +199,15 @@ no hints rather than inventing one."""
 
 
 def hints_messages(profile: ModelProfile, language: str, tone: str, message: str, history=()):
-    return _judging(profile, _hints_system(profile, language, tone),
-                    "suggest improvements to this message", message, history)
+    lang = language_name(language)
+    return _judging(
+        profile,
+        _hints_system(profile, language, tone),
+        "suggest improvements to this message",
+        message,
+        history,
+        reminder=f"Write each suggestion in {lang}, and each why in English.",
+    )
 
 
 # --- the translator --------------------------------------------------------
@@ -221,7 +239,12 @@ CONTEXT_ONLY = (
 
 
 def _judging(
-    profile: ModelProfile, system: str, instruction: str, message: str, history
+    profile: ModelProfile,
+    system: str,
+    instruction: str,
+    message: str,
+    history,
+    reminder: str = "",
 ) -> list[dict]:
     """Messages that put one turn in front of the model along with the
     conversation it came from — without the model mistaking one for the other.
@@ -238,6 +261,12 @@ def _judging(
     corrections caught from 7/9 to 9/9 and sentences correctly left alone from
     3/6 to 5/6; on phi4-mini:3.8b, from 2/9 to 5/9 with the stray commentary
     gone. See tools/compare_models.py.
+
+    A reminder rides on the final turn rather than only in the system prompt,
+    because the transcript sits between the two and a small model answers in the
+    language it has just been reading: told once at the top to explain in
+    English, phi4-mini then explained in Spanish on 3 of 6 mid-conversation
+    hints, and none once told again at the end.
     """
     turns = [m for m in (history or []) if (m.get("content") or "").strip()]
     # The message being judged is usually the last thing in the transcript;
@@ -246,15 +275,20 @@ def _judging(
     if turns and (turns[-1].get("content") or "").strip() == (message or "").strip():
         turns = turns[:-1]
 
+    tail = f"\n\n{reminder}" if reminder else ""
+
     recent = turns[-_context_turns(profile) :]
     if not recent:
-        return compose(profile, system, f"{instruction}: {message}")
+        return compose(profile, system, f"{instruction}: {message}{tail}")
 
     opening = compose(profile, f"{system}\n\n{CONTEXT_ONLY}", "Here is the conversation so far.")
     return [
         *opening,
         *({"role": m["role"], "content": m["content"]} for m in recent),
-        {"role": "user", "content": f"Now, {instruction}, and only this message: {message}"},
+        {
+            "role": "user",
+            "content": f"Now, {instruction}, and only this message: {message}{tail}",
+        },
     ]
 
 

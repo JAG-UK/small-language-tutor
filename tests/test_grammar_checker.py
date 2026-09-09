@@ -161,12 +161,15 @@ class TestMarkdownIsNotPartOfTheSentence:
             ("**Vivo en Madrid desde hace dos años.**", "Vivo en Madrid desde hace dos años."),
             ("No me gusta **las verduras**.", "No me gusta las verduras."),
             ("Me gusta _mucho_ leer", "Me gusta mucho leer"),
+            ("`ameliorar` was changed to `mejorar`.", "ameliorar was changed to mejorar."),
         ],
     )
     def test_emphasis_markers_are_stripped(self, raw, plain):
         assert _unmarkdown(raw) == plain
 
-    @pytest.mark.parametrize("text", ["2 * 3 = 6", "una nota_al_pie", "sin marcas"])
+    @pytest.mark.parametrize(
+        "text", ["2 * 3 = 6", "una nota_al_pie", "sin marcas", "el apóstrofo d`Artagnan"]
+    )
     def test_stray_marks_are_left_where_they_are(self, text):
         # Nothing to unwrap: removing these would change the sentence, not tidy it.
         assert _unmarkdown(text) == text
