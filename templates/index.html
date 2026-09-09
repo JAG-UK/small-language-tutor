@@ -298,8 +298,17 @@
                     const hintsList = hint.hints || [];
                     
                     let hintsHtml = '';
-                    hintsList.forEach(hintText => {
-                        hintsHtml += `<li>${escapeHtml(String(hintText))}</li>`;
+                    hintsList.forEach(hint => {
+                        // Conversations saved before hints were split into a
+                        // suggestion and a reason carry plain strings.
+                        if (hint && typeof hint === 'object') {
+                            hintsHtml += `<li>` +
+                                `<span class="hint-suggestion">${escapeHtml(String(hint.suggestion || ''))}</span>` +
+                                `<span class="hint-why">${escapeHtml(String(hint.why || ''))}</span>` +
+                                `</li>`;
+                        } else {
+                            hintsHtml += `<li>${escapeHtml(String(hint))}</li>`;
+                        }
                     });
                     
                     html += `

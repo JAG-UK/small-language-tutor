@@ -135,8 +135,8 @@ def correction_messages(
 ):
     """Ask for a correction of one message, optionally in the light of what was
     being talked about."""
-    user = _with_context("Correct this message", message, history, profile)
-    return compose(profile, _correction_system(profile, language, tone), user)
+    return _judging(profile, _correction_system(profile, language, tone),
+                    "correct this message", message, history)
 
 
 # --- the coach -------------------------------------------------------------
@@ -151,11 +151,24 @@ def _hints_system(profile: ModelProfile, language: str, tone: str) -> str:
             f"You are a {lang} tutor watching a {tone} conversation ({judged}).\n"
             f"Suggest up to three short ways the user's message could sound more "
             f"like a native speaker — more idiomatic, or a better fit for the tone.\n"
+            f"For each one give a suggestion — how to say it, written in {lang} "
+            f"— and a why, one short sentence of English explaining what is "
+            f"better about it. Never suggest an English phrase.\n"
+            f"You are advising the learner, not replying to them: do not answer "
+            f"the message or continue the conversation.\n"
             f"Only suggest something if it would genuinely be an improvement. "
             f"If the message already sounds natural, return no hints."
         )
 
     return f"""You are a helpful language tutor providing tips to make {lang} more natural and idiomatic. You are watching a conversation the user is having with a native {lang} speaker and providing real-time feedback to help the user improve next time. The conversation tone is {tone} ({judged}).
+
+CRITICAL RULES:
+1. Your explanations must be in English, so the learner understands them, BUT
+2. every phrase, alternative and example you suggest MUST be in {lang}
+3. NEVER offer an English phrase as an alternative — a hint like "try 'Not yet'"
+   is useless to someone learning {lang}
+4. You are advising the learner, not talking to them. Do not answer their
+   message, and do not carry the conversation on
 
 Look for:
 1. Phrases that are grammatically correct but sound unnatural or textbook-like
@@ -163,13 +176,20 @@ Look for:
 3. Ways to better match the {tone} tone of the conversation
 4. Common expressions that would fit better
 
+Each hint is a suggestion — the phrase itself, in {lang} — and a why, one short
+sentence of English saying what is better about it.
+
+Right: suggestion "Aún no", why "More natural than 'No todavía' in speech."
+Wrong: suggestion "Not yet"  (the suggestion must never be English)
+Wrong: suggestion "¿Has pensado en otro libro?"  (that is a reply, not a hint)
+
 Give at most three short hints. If the message already sounds natural, return
 no hints rather than inventing one."""
 
 
 def hints_messages(profile: ModelProfile, language: str, tone: str, message: str, history=()):
-    user = _with_context("Suggest improvements to this message", message, history, profile)
-    return compose(profile, _hints_system(profile, language, tone), user)
+    return _judging(profile, _hints_system(profile, language, tone),
+                    "suggest improvements to this message", message, history)
 
 
 # --- the translator --------------------------------------------------------
@@ -191,13 +211,33 @@ def translation_messages(profile: ModelProfile, phrase: str, language: str, dire
 # --- shared ----------------------------------------------------------------
 
 
-def _with_context(instruction: str, message: str, history, profile: ModelProfile) -> str:
-    """Put the message in front of the model, with a little of what preceded it.
+#: Added whenever context is sent, because without it a small model treats the
+#: transcript as more of the thing to fix.
+CONTEXT_ONLY = (
+    "You will see the recent conversation, then one message to judge. "
+    "The conversation is background only: never correct it, never comment on "
+    "it, and never mention it in your answer."
+)
 
-    A correction without context misreads replies: "Sí, en Madrid" is a fragment
-    on its own and a perfectly good answer to a question. Only the last few
-    turns are included — the critic is judging one sentence, not summarising the
-    conversation.
+
+def _judging(
+    profile: ModelProfile, system: str, instruction: str, message: str, history
+) -> list[dict]:
+    """Messages that put one turn in front of the model along with the
+    conversation it came from — without the model mistaking one for the other.
+
+    Context is needed because a reply misreads without it: "Sí, en Madrid" is a
+    fragment on its own and a perfectly good answer to a question. But pasting
+    the transcript into the instruction ("Conversation so far: ...") invites the
+    model to correct the transcript instead, which it does: asked to correct
+    "¡Bueno! Lo comprará. Gracias." it would explain what was wrong with a
+    message three turns earlier, or answer the conversation rather than mark it.
+
+    Sending the transcript as actual conversation turns keeps the two apart.
+    Measured over three trials of five cases on translategemma:12b, that took
+    corrections caught from 7/9 to 9/9 and sentences correctly left alone from
+    3/6 to 5/6; on phi4-mini:3.8b, from 2/9 to 5/9 with the stray commentary
+    gone. See tools/compare_models.py.
     """
     turns = [m for m in (history or []) if (m.get("content") or "").strip()]
     # The message being judged is usually the last thing in the transcript;
@@ -205,15 +245,17 @@ def _with_context(instruction: str, message: str, history, profile: ModelProfile
     # caller that passes history without it still works.
     if turns and (turns[-1].get("content") or "").strip() == (message or "").strip():
         turns = turns[:-1]
-    preceding = turns
-    if not preceding:
-        return f"{instruction}: {message}"
 
-    excerpt = "\n".join(
-        f"{'They' if m['role'] == 'assistant' else 'User'}: {m['content']}"
-        for m in preceding[-_context_turns(profile) :]
-    )
-    return f"Conversation so far:\n{excerpt}\n\n{instruction}: {message}"
+    recent = turns[-_context_turns(profile) :]
+    if not recent:
+        return compose(profile, system, f"{instruction}: {message}")
+
+    opening = compose(profile, f"{system}\n\n{CONTEXT_ONLY}", "Here is the conversation so far.")
+    return [
+        *opening,
+        *({"role": m["role"], "content": m["content"]} for m in recent),
+        {"role": "user", "content": f"Now, {instruction}, and only this message: {message}"},
+    ]
 
 
 def _context_turns(profile: ModelProfile) -> int:

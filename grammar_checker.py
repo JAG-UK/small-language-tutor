@@ -30,11 +30,28 @@ CORRECTION_SCHEMA = {
     "required": ["has_errors", "corrected", "explanation"],
 }
 
+# A hint is two things in two languages, so the schema asks for them separately.
+# As one free string the model wrote whichever it felt like — sometimes an
+# English rewrite of a Spanish sentence, sometimes a bare phrase with no reason
+# attached, sometimes a reply to the learner rather than advice for them. Split
+# in two, generation is constrained to produce both parts.
 HINTS_SCHEMA = {
     "type": "object",
     "properties": {
         "has_hints": {"type": "boolean"},
-        "hints": {"type": "array", "items": {"type": "string"}},
+        "hints": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    #: How to say it, in the language being learned.
+                    "suggestion": {"type": "string"},
+                    #: Why that is better, in English, so the learner can follow.
+                    "why": {"type": "string"},
+                },
+                "required": ["suggestion", "why"],
+            },
+        },
     },
     "required": ["has_hints", "hints"],
 }
@@ -42,6 +59,21 @@ HINTS_SCHEMA = {
 
 def _tidy(text):
     return re.sub(r"\s+", " ", (text or "")).strip()
+
+
+def _unmarkdown(text):
+    """Strip emphasis markers from a sentence meant to be read as plain text.
+
+    Models reach for markdown unprompted — translategemma:12b italicises book
+    titles as *Don Quijote*, and has been seen to bold a whole correction. The
+    panel shows the sentence as-is, so the asterisks arrive as asterisks and the
+    learner is quietly taught to type them.
+    """
+    # The markers only count at the edges of a word: "una nota_al_pie" is a word
+    # with underscores in it, not emphasis, and unwrapping it loses letters.
+    return re.sub(
+        r"(?<![\w*_])(\*{1,3}|_{1,3})(\S(?:.*?\S)?)\1(?![\w*_])", r"\2", text or ""
+    )
 
 
 def _cosmetic(text):
@@ -135,7 +167,7 @@ class GrammarChecker:
                 "explanation": "Could not check this message.",
             }
 
-        corrected = (result.get("corrected") or "").strip() or user_message
+        corrected = _unmarkdown(result.get("corrected") or "").strip() or user_message
         if not _is_a_correction(corrected, user_message):
             # The model answered with commentary rather than a sentence. Better
             # to show the learner nothing than to show them that.
@@ -151,7 +183,7 @@ class GrammarChecker:
         return {
             "has_errors": has_errors,
             "corrected": corrected,
-            "explanation": result.get("explanation") or "",
+            "explanation": _unmarkdown(result.get("explanation") or ""),
         }
 
     def get_hints(self, user_message, conversation_context, target_language, tone="friendly"):
@@ -163,5 +195,13 @@ class GrammarChecker:
         if not result:
             return {"has_hints": False, "hints": []}
 
-        hints = [str(h) for h in (result.get("hints") or []) if str(h).strip()]
+        hints = []
+        for hint in result.get("hints") or []:
+            if not isinstance(hint, dict):
+                continue  # a bare string is the old shape, and has no "why"
+            suggestion = _tidy(_unmarkdown(hint.get("suggestion")))
+            why = _tidy(_unmarkdown(hint.get("why")))
+            if suggestion and why:
+                hints.append({"suggestion": suggestion, "why": why})
+
         return {"has_hints": bool(result.get("has_hints")) and bool(hints), "hints": hints}

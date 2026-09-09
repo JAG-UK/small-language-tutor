@@ -103,8 +103,33 @@ class TestGivingTheCriticContext:
         assert "Sí, en Madrid" in prompt
 
     def test_says_nothing_about_context_when_there_is_none(self):
-        prompt = text_of(correction_messages(TERSE, "es", "friendly", "hola", []))
-        assert "Conversation so far" not in prompt
+        messages = correction_messages(TERSE, "es", "friendly", "hola", [])
+        assert "conversation so far" not in text_of(messages).lower()
+        assert len(messages) == 2  # the instruction and the message, nothing else
+
+    def test_the_context_arrives_as_turns_not_as_part_of_the_instruction(self):
+        """Pasting the transcript into the instruction invites the model to
+        correct the transcript, which it did: asked about one message it would
+        explain what was wrong with another three turns earlier."""
+        messages = correction_messages(TERSE, "es", "friendly", "Sí, en Madrid", self.history)
+
+        context_turn = [m for m in messages if m["content"] == "¿Dónde vives?"]
+        assert context_turn, "the earlier turn should be its own message"
+        assert context_turn[0]["role"] == "assistant"
+        # ...and the turn being judged is the last word, on its own.
+        assert messages[-1]["content"].endswith("Sí, en Madrid")
+
+    def test_tells_the_model_the_conversation_is_not_its_to_correct(self):
+        with_context = text_of(
+            correction_messages(TERSE, "es", "friendly", "Sí, en Madrid", self.history)
+        )
+        assert "never correct it" in with_context.lower()
+
+    def test_keeps_the_speakers_straight(self):
+        # "They:"/"User:" labels used to leak into explanations shown to the
+        # learner. Roles carry that now, so no labels are written into the text.
+        prompt = text_of(correction_messages(TERSE, "es", "friendly", "Sí, en Madrid", self.history))
+        assert "They:" not in prompt and "User:" not in prompt
 
     def test_carries_less_of_the_transcript_than_the_conversation_does(self):
         # The critic judges one sentence; it does not need the whole exchange.
@@ -125,6 +150,22 @@ class TestTheCoach:
     def test_asks_for_a_small_number_of_suggestions(self):
         prompt = text_of(hints_messages(TERSE, "es", "friendly", "hola"))
         assert "three" in prompt.lower()
+
+    @pytest.mark.parametrize("profile", [TERSE, DETAILED])
+    def test_demands_the_suggestions_be_in_the_target_language(self, profile):
+        """The hints panel filled up with English: "Sounds like you, right?"
+        offered as a way to improve a Spanish sentence. Both prompt lengths have
+        to say it — the terse one had dropped the rule entirely."""
+        prompt = text_of(hints_messages(profile, "es", "friendly", "hola"))
+        assert "Spanish" in prompt
+        assert "english" in prompt.lower()  # named, to be ruled out
+
+    @pytest.mark.parametrize("profile", [TERSE, DETAILED])
+    def test_says_this_is_advice_rather_than_a_reply(self, profile):
+        # Given the conversation, the model would answer it instead of marking
+        # it: "¿Has pensado en otro libro?" is a reply, not a hint.
+        prompt = text_of(hints_messages(profile, "es", "friendly", "hola")).lower()
+        assert "not replying" in prompt or "not talking to them" in prompt
 
     def test_says_to_stay_quiet_when_there_is_nothing_to_say(self):
         for profile in (TERSE, DETAILED):

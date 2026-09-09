@@ -273,8 +273,15 @@ def get_corrections():
             hints_list = hint_data.get('hints', [])
             
             hints_html = ''
-            for i, hint_text in enumerate(hints_list, 1):
-                hints_html += f'<li>{html.escape(hint_text)}</li>'
+            for hint in hints_list:
+                # Conversations saved before hints were split carry plain strings.
+                if isinstance(hint, dict):
+                    suggestion = html.escape(str(hint.get('suggestion', '')))
+                    why = html.escape(str(hint.get('why', '')))
+                    hints_html += (f'<li><span class="hint-suggestion">{suggestion}</span>'
+                                   f'<span class="hint-why">{why}</span></li>')
+                else:
+                    hints_html += f'<li>{html.escape(str(hint))}</li>'
             
             html_output += f'''
             <div class="hint-item">

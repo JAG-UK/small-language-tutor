@@ -3,7 +3,7 @@ does not cooperate."""
 
 import pytest
 
-from grammar_checker import CORRECTION_SCHEMA, HINTS_SCHEMA, GrammarChecker
+from grammar_checker import CORRECTION_SCHEMA, HINTS_SCHEMA, GrammarChecker, _unmarkdown
 
 
 class FakeOllama:
@@ -148,6 +148,52 @@ class TestTidyingUpIsNotAnError:
         assert self.correct(model, "Madrid", "madrid")["has_errors"] is False
 
 
+class TestMarkdownIsNotPartOfTheSentence:
+    """Models reach for markdown unprompted: translategemma:12b italicises book
+    titles as *Don Quijote* and has been seen to bold a whole correction. The
+    panel shows the sentence as written, so the asterisks reach the learner."""
+
+    @pytest.mark.parametrize(
+        "raw,plain",
+        [
+            ("Ya tengo *Don Quijote* y *Cien años de soledad*.",
+             "Ya tengo Don Quijote y Cien años de soledad."),
+            ("**Vivo en Madrid desde hace dos años.**", "Vivo en Madrid desde hace dos años."),
+            ("No me gusta **las verduras**.", "No me gusta las verduras."),
+            ("Me gusta _mucho_ leer", "Me gusta mucho leer"),
+        ],
+    )
+    def test_emphasis_markers_are_stripped(self, raw, plain):
+        assert _unmarkdown(raw) == plain
+
+    @pytest.mark.parametrize("text", ["2 * 3 = 6", "una nota_al_pie", "sin marcas"])
+    def test_stray_marks_are_left_where_they_are(self, text):
+        # Nothing to unwrap: removing these would change the sentence, not tidy it.
+        assert _unmarkdown(text) == text
+
+    def test_the_explanation_is_cleaned_too(self, model):
+        # It is shown as prose in the same panel, and arrived full of markers:
+        # "*Don Quijote*: This is a proper noun and needs to be capitalized."
+        model.answer = {"has_errors": True, "corrected": "Ya tengo Don Quijote",
+                        "explanation": "*Don Quijote*: a **proper noun**."}
+        result = checker(model).check_message("ya tengo Don Quijote", [], "Spanish")
+        assert result["explanation"] == "Don Quijote: a proper noun."
+
+    def test_hints_are_cleaned_too(self, model):
+        model.answer = {"has_hints": True, "hints": [
+            {"suggestion": "*Aún no*", "why": "More natural than **No todavía**."}]}
+        hint = checker(model).get_hints("hola", [], "Spanish")["hints"][0]
+        assert hint == {"suggestion": "Aún no", "why": "More natural than No todavía."}
+
+    def test_the_learner_never_sees_the_asterisks(self, model):
+        model.answer = {"has_errors": True, "explanation": "titles",
+                        "corrected": "Ya tengo *Don Quijote* y *Cien años de soledad*."}
+        result = checker(model).check_message("ya tengo Don Quijote y Cien anos de soledad",
+                                              [], "Spanish")
+        assert result["corrected"] == "Ya tengo Don Quijote y Cien años de soledad."
+        assert result["has_errors"] is True
+
+
 class TestCommentaryIsNotACorrection:
     """Asked to correct "vivo en madrid desde hace dos anos", phi4-mini:3.8b
     variously answered "Your message is correct.", "No se realizaron
@@ -239,18 +285,38 @@ class TestHints:
         assert model.calls[0]["schema"] == HINTS_SCHEMA
 
     def test_returns_the_hints(self, model):
-        model.answer = {"has_hints": True, "hints": ["Try 'qué tal' instead", "Drop the pronoun"]}
+        model.answer = {"has_hints": True, "hints": [
+            {"suggestion": "¿Qué tal?", "why": "Warmer than 'Cómo estás' between friends."},
+            {"suggestion": "¿Cómo estás?", "why": "The pronoun is redundant here."},
+        ]}
         result = checker(model).get_hints("Cómo estás tú", [], "Spanish")
-        assert result["hints"] == ["Try 'qué tal' instead", "Drop the pronoun"]
         assert result["has_hints"] is True
+        assert [h["suggestion"] for h in result["hints"]] == ["¿Qué tal?", "¿Cómo estás?"]
+        assert result["hints"][0]["why"].startswith("Warmer")
 
     def test_says_nothing_when_the_sentence_already_sounds_right(self, model):
         model.answer = {"has_hints": False, "hints": []}
         assert checker(model).get_hints("¿Qué tal?", [], "Spanish")["has_hints"] is False
 
     def test_drops_blank_hints(self, model):
-        model.answer = {"has_hints": True, "hints": ["Use 'qué tal'", "", "   "]}
-        assert checker(model).get_hints("hola", [], "Spanish")["hints"] == ["Use 'qué tal'"]
+        model.answer = {"has_hints": True, "hints": [
+            {"suggestion": "¿Qué tal?", "why": "Warmer."},
+            {"suggestion": "", "why": "..."},
+            {"suggestion": "   ", "why": "   "},
+        ]}
+        hints = checker(model).get_hints("hola", [], "Spanish")["hints"]
+        assert [h["suggestion"] for h in hints] == ["¿Qué tal?"]
+
+    def test_a_hint_without_a_reason_is_not_a_hint(self, model):
+        # A bare phrase teaches nothing: the learner cannot tell why it is better.
+        model.answer = {"has_hints": True, "hints": [{"suggestion": "¿Qué tal?", "why": ""}]}
+        assert checker(model).get_hints("hola", [], "Spanish")["has_hints"] is False
+
+    def test_ignores_the_old_flat_shape(self, model):
+        # Before the split a hint was one free string, and the model filled it
+        # with whatever it liked — often an English rewrite of a Spanish sentence.
+        model.answer = {"has_hints": True, "hints": ["Sounds like you, right?"]}
+        assert checker(model).get_hints("hola", [], "Spanish")["has_hints"] is False
 
     def test_claiming_hints_while_offering_none_counts_as_none(self, model):
         # Small models say has_hints: true and then produce an empty list.
