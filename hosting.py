@@ -86,12 +86,10 @@ def startup_problems(host, secret, debug):
                 "HTTP port it can be read in transit. Prefer an SSH tunnel, or put a reverse "
                 "proxy with TLS in front."
             )
-    elif not secret:
-        warnings.append(
-            "No SLT_PASSWORD set. Fine on loopback, but the tunnel's far end is not protected: "
-            "anyone with an account on that machine can reach this."
-        )
-
+    # No warning for loopback without a password: that is the ordinary way to
+    # run this on your own laptop, and a warning printed on every normal start
+    # is one people learn to scroll past. The README makes the case for setting
+    # one where it matters, which is when the far end of a tunnel is shared.
     return refusals, warnings
 
 

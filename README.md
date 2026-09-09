@@ -26,29 +26,75 @@ Language learning reinforcement app based on local small language models.
    ollama pull translategemma:12b
    ```
 
-3. **Configure the models** (optional):
-   ```bash
-   export SLT_MODEL=phi4-mini:3.8b          # holds the conversation
-   export SLT_CRITIC_MODEL=translategemma:12b   # marks the homework
-   ```
-   Both have defaults, and `SLT_CRITIC_MODEL` falls back to `SLT_MODEL`, so the
-   app runs with neither set. See [Choosing models](#choosing-models) for why
-   those two, and for what a machine with less memory should do instead.
+3. **Run it** — see the two recipes below.
 
-4. **Run the app:**
-   ```bash
-   python app.py
-   ```
+## Two ways to run it
 
-5. **Open in browser:**
-   Navigate to `http://localhost:5001`
+Both are entirely local: the models run on your own hardware and no text leaves
+it. The difference is only whether "your own hardware" is the machine in front
+of you.
 
-   Note: Port 5001 is used instead of 5000 to avoid conflicts with macOS AirPlay
-   Receiver. `SLT_PORT` changes it.
+### On this machine
 
-   The app binds to `127.0.0.1`, so it is reachable only from the machine it
-   runs on. To use it from elsewhere — a laptop talking to the box with the GPU
-   in it — see [Reaching it from another machine](#reaching-it-from-another-machine).
+The default. Small models, nothing listening but loopback, no password needed.
+
+```bash
+export SLT_MODEL=phi4-mini:3.8b              # holds the conversation
+export SLT_CRITIC_MODEL=translategemma:12b   # marks the homework
+python app.py
+```
+
+Open `http://localhost:5001`. Works on a plane; nothing else on the network can
+reach it. Both variables have defaults, and `SLT_CRITIC_MODEL` falls back to
+`SLT_MODEL`, so plain `python app.py` also works — see
+[Choosing models](#choosing-models) for what you give up.
+
+### On the box with the GPU in it
+
+Bigger models there, tunnel in from wherever you are. Two terminals.
+
+**On the GPU box:**
+
+```bash
+export OLLAMA_MAX_LOADED_MODELS=2            # keep both models resident
+export OLLAMA_KEEP_ALIVE=30m
+export SLT_MODEL=phi4-mini:3.8b              # small and instant
+export SLT_CRITIC_MODEL=translategemma:27b   # large, and never in your way
+export SLT_PASSWORD='something long'
+python app.py
+```
+
+It still binds to that machine's loopback. Opening a port is not part of this.
+
+**On your laptop:**
+
+```bash
+tools/tunnel.sh you@gpu-box
+```
+
+Open `http://localhost:5001` and give the password when asked. Any username.
+
+Without the repo on the laptop, that script is only this:
+
+```bash
+ssh -N -L 5001:127.0.0.1:5001 you@gpu-box
+```
+
+Why those models and those Ollama variables:
+[When there is a GPU to spend](#when-there-is-a-gpu-to-spend). Why a tunnel
+rather than a port: [Reaching it from another
+machine](#reaching-it-from-another-machine).
+
+### Settings
+
+| variable | default | what it does |
+|---|---|---|
+| `SLT_MODEL` | `phi4-mini:3.8b` | the conversation partner |
+| `SLT_CRITIC_MODEL` | whatever `SLT_MODEL` is | marks each message, off the critical path |
+| `SLT_PASSWORD` | unset | required before anything is served; mandatory off loopback |
+| `SLT_HOST` | `127.0.0.1` | where to bind. Anything else needs a password |
+| `SLT_PORT` | `5001` | 5000 collides with macOS AirPlay Receiver |
+| `SLT_DEBUG` | off | the Werkzeug debugger. Loopback only — it runs what it is sent |
 
 ## Choosing models
 

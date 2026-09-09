@@ -55,9 +55,10 @@ class TestConfigurationsItWillNotStart:
         _, warnings = hosting.startup_problems("0.0.0.0", "hunter2", debug=False)
         assert any("encrypted" in w for w in warnings)
 
-    def test_loopback_without_a_password_warns_about_the_far_end(self):
-        _, warnings = hosting.startup_problems("127.0.0.1", None, debug=False)
-        assert any("tunnel" in w for w in warnings)
+    def test_the_ordinary_local_run_says_nothing_at_all(self):
+        # The documented default. A warning on every normal start is one people
+        # learn to scroll past, and then miss the one that matters.
+        assert hosting.startup_problems("127.0.0.1", None, debug=False) == ([], [])
 
 
 class TestTheGate:
