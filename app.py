@@ -2,10 +2,12 @@ import html
 import json
 import os
 import re
+import sys
 from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
 
+import hosting
 from grammar_checker import GrammarChecker
 from model_profiles import profile_for
 from models import Conversation, Session
@@ -13,6 +15,11 @@ from ollama_client import OllamaClient
 from prompts import conversation_messages, translation_messages
 
 app = Flask(__name__)
+
+# Nothing is served without the password, when one is set. See hosting.py for
+# what is and is not protected by it, and the README for reaching this from
+# another machine.
+hosting.install(app, hosting.password())
 
 # Set SLT_MODEL to try another one — the prompts adapt to the family. See
 # model_profiles.py for what the app knows about each, and the README for
@@ -372,6 +379,29 @@ def get_conversation(conv_id):
     session.close()
     return jsonify(result)
 
+def main():
+    """Start the server, or explain why the configuration is not one to start.
+
+    It used to run with debug=True on 0.0.0.0, which is the Werkzeug debugger —
+    a shell that executes what it is sent — offered to the whole network.
+    """
+    host, port = hosting.bind_host(), hosting.bind_port()
+    debug = hosting.debug_enabled()
+    refusals, warnings = hosting.startup_problems(host, hosting.password(), debug)
+
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    if refusals:
+        for refusal in refusals:
+            print(f"refusing to start: {refusal}", file=sys.stderr)
+        raise SystemExit(2)
+
+    where = "this machine only" if hosting.is_loopback(host) else "the network"
+    locked = "password required" if hosting.password() else "no password"
+    print(f"Language Tutor on http://{host}:{port} — {where}, {locked}", file=sys.stderr)
+    app.run(debug=debug, host=host, port=port)
+
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    main()
 

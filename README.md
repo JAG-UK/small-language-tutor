@@ -42,8 +42,13 @@ Language learning reinforcement app based on local small language models.
 
 5. **Open in browser:**
    Navigate to `http://localhost:5001`
-   
-   Note: Port 5001 is used instead of 5000 to avoid conflicts with macOS AirPlay Receiver
+
+   Note: Port 5001 is used instead of 5000 to avoid conflicts with macOS AirPlay
+   Receiver. `SLT_PORT` changes it.
+
+   The app binds to `127.0.0.1`, so it is reachable only from the machine it
+   runs on. To use it from elsewhere — a laptop talking to the box with the GPU
+   in it — see [Reaching it from another machine](#reaching-it-from-another-machine).
 
 ## Choosing models
 
@@ -127,6 +132,55 @@ Two results worth knowing about, because they are not what the names suggest:
   to 54s when other models were also resident, which is worth remembering
   before pairing anything this large with a second model.
 
+### When there is a GPU to spend
+
+The split between conversation and critique pays off most here: the critic is
+off the critical path, so on a box with room for a second model it can be a much
+better one without the conversation slowing down at all.
+
+On a 32GB card, the pairing to try first is a small fast partner and a large
+critic:
+
+```bash
+export SLT_MODEL=phi4-mini:3.8b            # 2.5GB, replies in a fraction of a second
+export SLT_CRITIC_MODEL=translategemma:27b  # ~16GB, and never in the learner's way
+```
+
+That leaves plenty of headroom. If you would rather the conversation itself were
+better, `gemma2:27b` chatting with `translategemma:12b` marking is about 24GB
+together and still fits.
+
+**Set Ollama to keep both resident**, or the win is eaten by swapping weights:
+
+```bash
+export OLLAMA_MAX_LOADED_MODELS=2
+export OLLAMA_KEEP_ALIVE=30m
+```
+
+This matters more than the model choice. Measured on the laptop, a reply asked
+for while a critique was still running took 2.3s instead of 0.3s — that is the
+two models taking turns. With both resident there is nothing to swap.
+
+Two things worth knowing before picking something enormous:
+
+* **Bigger is not automatically faster on your hardware, and not automatically
+  better here.** The 27B dense models measured 0.35–0.38s on that box while
+  `gemma4:31b` took 6.23s for the same work. And on the laptop the best critic
+  was 12B, not the 27B: `gemma2:27b` caught marginally more errors and rewrote
+  correct sentences that `translategemma:12b` left alone. Catching everything is
+  not the same as being right.
+* **Reasoning models remain the wrong shape for this**, however much card you
+  have. The cost is tokens of chain-of-thought before the answer, which a faster
+  card shortens but does not remove.
+
+None of the above is measured on a 5090 — it is reasoning from the laptop
+numbers and from what you measured on that box. `tools/compare_models.py` runs
+there too, and its answer beats this paragraph:
+
+```bash
+python tools/compare_models.py critic translategemma:12b translategemma:27b gemma2:27b
+```
+
 ### Re-running this yourself
 
 These numbers are one laptop, one language, and a small test set. A different
@@ -148,6 +202,68 @@ models, which is why it runs each case three times.
 turn at all (Gemma 1-3 do not), whether long prompts help or hurt, and how much
 transcript to carry. Add a row to `FAMILIES` and the prompts adapt. An unknown
 model gets a conservative default — short prompts, a system turn assumed.
+
+## Reaching it from another machine
+
+The app binds to `127.0.0.1`. Nothing outside the machine it runs on can reach
+it, which is the right default for something that answers with a GPU and keeps
+a database of your conversations.
+
+To use it from your laptop while it runs on the box with the card in it, forward
+the port over SSH rather than opening one:
+
+```bash
+tools/tunnel.sh you@gpu-box
+```
+
+Then open `http://localhost:5001`. Leave it running; Ctrl-C closes it. The far
+end never puts a port on the network — SSH carries the traffic, and supplies the
+encryption that HTTP Basic does not.
+
+### The password
+
+Set `SLT_PASSWORD` on the machine running the app:
+
+```bash
+SLT_PASSWORD='something long' python app.py
+```
+
+Every route is then behind it, including `/api/chat` — the one that costs GPU
+time. Any username works; there is one user, and a name is a second thing to
+remember rather than another thing to guess past. Ten wrong guesses from one
+address and it stops answering that address for five minutes.
+
+Over a tunnel the password is not what stops the internet: the closed port is.
+The password is what stops **other people with accounts on the GPU box** using
+the tunnel's exit. Set one anyway.
+
+### What it refuses to do
+
+`SLT_HOST` will bind somewhere other than loopback, but not into a state worth
+regretting:
+
+| configuration | what happens |
+|---|---|
+| `SLT_HOST=0.0.0.0`, no password | refuses to start |
+| `SLT_HOST=0.0.0.0` + `SLT_DEBUG=1` | refuses to start |
+| `SLT_HOST=0.0.0.0` + password | starts, warns the password is readable in transit |
+| default loopback | starts |
+
+`SLT_DEBUG=1` turns on the Werkzeug debugger, which is a shell that runs
+whatever is sent to it. That is fine on loopback and catastrophic anywhere else,
+so it is off by default and refused off-loopback. It used to be on, on every
+interface.
+
+If you do want this on the open internet rather than through a tunnel, put a
+reverse proxy with TLS in front of it and point that at the loopback port. Basic
+auth over plain HTTP sends the password merely encoded.
+
+### One user
+
+Conversations are keyed by an id the browser makes up, and the password does not
+distinguish between people who know it. Two people sharing the password get
+separate conversations only as long as neither goes looking for the other's.
+This is a personal tool, not a service.
 
 ## Architecture
 
@@ -187,13 +303,15 @@ small-language-tutor/
 ├── grammar_checker.py     # Corrections and hints, and the guards on them
 ├── prompts.py             # Everything the models are asked, in one place
 ├── model_profiles.py      # What each model family needs said to it
+├── hosting.py             # Where it binds, and who gets past the password
 ├── static/
 │   └── css/
 │       └── style.css      # Main stylesheet
 ├── templates/
 │   └── index.html         # Main HTMX interface
 ├── tools/
-│   └── compare_models.py  # Measure a model at each of the three jobs
+│   ├── compare_models.py  # Measure a model at each of the three jobs
+│   └── tunnel.sh          # Reach a remote instance over SSH
 ├── tests/                 # pytest; no model or network needed
 └── requirements.txt       # Python dependencies
 ```
