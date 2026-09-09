@@ -145,6 +145,62 @@ def _is_a_correction(corrected, original):
     return len(re.findall(r"\w+", _tidy(corrected))) <= max(1.6 * n, n + 3)
 
 
+#: A word the explanation puts in quotes, of either kind.
+_QUOTED = r"['\"\u2018\u2019\u201c\u201d]([^'\"\u2018\u2019\u201c\u201d]{1,30}?)['\"\u2018\u2019\u201c\u201d]"
+_REMOVED = re.compile(rf"(?:removed|deleted|dropped)\s+(?:the\s+\w+\s+)?{_QUOTED}", re.I)
+_WAS_REMOVED = re.compile(
+    rf"{_QUOTED}\s+(?:was|were|is|has been)\s+(?:removed|deleted|dropped)", re.I
+)
+_CHANGED_TO = re.compile(rf"{_QUOTED}\s*(?:to|->|\u2192)\s*{_QUOTED}", re.I)
+#: A whole explanation that amounts to "nothing was wrong". Matched against the
+#: entire text, so a real explanation that happens to end on a reassuring note
+#: keeps the part that teaches something.
+_DENIAL = re.compile(
+    r"^(?:there\s+(?:are|were)\s+)?no\s+(?:changes?|corrections?|errors?|mistakes?)"
+    r"(?:\s+(?:needed|required|found|were\s+made|made))?[.!]?$",
+    re.I,
+)
+
+
+def _mentions(word, sentence):
+    """Case-insensitively, because the sentence may capitalise it — but never
+    accent-insensitively: "Si" and "Sí" are different words, and that difference
+    is usually the entire correction."""
+    return re.search(rf"(?<!\w){re.escape(word.strip())}(?!\w)", sentence, re.I) is not None
+
+
+def _contradicts(corrected, explanation):
+    """Whether the explanation claims a change the correction plainly did not make.
+
+    Asked to correct "Si, gracias. ¿Tal vez algo internacional?", phi4-mini
+    fixed the accent on "Si" and then said "the word 'tal' was removed because
+    it's unnecessary" — with "tal" still sitting in the sentence it had just
+    written. It also produced "Corrected 'true' to 'true', 'horrors' to
+    'errors'" for a sentence containing none of those words.
+
+    A learner cannot tell that from a real correction, and this one teaches them
+    to stop using a word that was fine. So the claim is checked against the two
+    sentences, and only claims contradicted by them count: a word said to be
+    removed that is still there, or a word said to have been changed into
+    itself. Nothing here judges whether an explanation is *good* — an
+    explanation naming no words at all, or reaching for "ser" to explain a fix
+    to "soy", is vague rather than false, and is left alone.
+    """
+    for pattern in (_REMOVED, _WAS_REMOVED):
+        for match in pattern.finditer(explanation or ""):
+            if _mentions(match.group(1), corrected):
+                return True
+    for match in _CHANGED_TO.finditer(explanation or ""):
+        # Exactly equal, not merely equal ignoring case: "changed 'madrid' to
+        # 'Madrid'" is the correction working, not a contradiction.
+        if match.group(1).strip() == match.group(2).strip():
+            return True
+    # "No changes needed." printed beside a visible change. The model makes the
+    # correction and then denies making it, the same way it misreports
+    # has_errors. Saying nothing says as much, without the confusion.
+    return bool(_DENIAL.match((explanation or "").strip()))
+
+
 class GrammarChecker:
     def __init__(self, ollama_client, profile=None):
         self.ollama = ollama_client
@@ -181,10 +237,16 @@ class GrammarChecker:
         # a different sentence has still found one, and the learner should see
         # it. A model that flags an error but changes nothing has not.
         has_errors = _differs(corrected, user_message)
+        explanation = _unmarkdown(result.get("explanation") or "")
+        if _contradicts(corrected, explanation):
+            # The correction itself still stands — it is the prose about it that
+            # is wrong, and no explanation beats a false one.
+            explanation = ""
+
         return {
             "has_errors": has_errors,
             "corrected": corrected,
-            "explanation": _unmarkdown(result.get("explanation") or ""),
+            "explanation": explanation,
         }
 
     def get_hints(self, user_message, conversation_context, target_language, tone="friendly"):

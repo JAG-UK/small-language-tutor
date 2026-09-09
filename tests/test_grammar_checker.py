@@ -3,7 +3,13 @@ does not cooperate."""
 
 import pytest
 
-from grammar_checker import CORRECTION_SCHEMA, HINTS_SCHEMA, GrammarChecker, _unmarkdown
+from grammar_checker import (
+    CORRECTION_SCHEMA,
+    HINTS_SCHEMA,
+    GrammarChecker,
+    _contradicts,
+    _unmarkdown,
+)
 
 
 class FakeOllama:
@@ -146,6 +152,77 @@ class TestTidyingUpIsNotAnError:
         it — a full stop gets added to almost every good sentence, whereas a
         message that is a bare proper noun and nothing else is rare."""
         assert self.correct(model, "Madrid", "madrid")["has_errors"] is False
+
+
+class TestAnExplanationOfAChangeThatWasNotMade:
+    """Asked to correct "Si, gracias. ¿Tal vez algo internacional?", phi4-mini
+    fixed the accent on "Si" and then said the word "tal" had been removed —
+    with "tal" still in the sentence it had just written. A learner cannot tell
+    that from a real correction, and it teaches them to drop a word that was
+    fine."""
+
+    @pytest.mark.parametrize(
+        "corrected,explanation",
+        [
+            ("Sí, gracias. ¿Tal vez algo internacional?",
+             "The word 'tal' was removed because it's unnecessary."),
+            ("Sí, gracias. ¿Tal vez algo?", "I removed the word 'tal'."),
+            ("me gusta la comida española", "Changed 'comida' to 'comida' for agreement."),
+            ("la casa", "Corrected 'true' to 'true' and fixed the article."),
+        ],
+    )
+    def test_a_claim_the_sentence_disproves_is_caught(self, corrected, explanation):
+        assert _contradicts(corrected, explanation) is True
+
+    @pytest.mark.parametrize(
+        "corrected,explanation",
+        [
+            # The correction working, not a contradiction.
+            ("vivo en Madrid", "Capitalised 'madrid' to 'Madrid': it is a proper noun."),
+            # A removal that genuinely happened.
+            ("me gusta leer", "The preposition 'a' was removed before the infinitive."),
+            # Vague is not false: explaining "soy" by naming its infinitive.
+            ("yo estoy cansado", "The verb 'ser' is for permanent traits, 'estar' for states."),
+            # An accent added to a letter that no longer appears on its own.
+            ("Sí, gracias.", "Added an accent to 'i' to make 'Sí'."),
+            # Naming an unchanged word to explain a change is normal.
+            ("una buena idea", "'Idea' is feminine, so it takes 'una'."),
+            ("Ya tengo Don Quijote", ""),
+        ],
+    )
+    def test_a_sound_explanation_is_left_alone(self, corrected, explanation):
+        assert _contradicts(corrected, explanation) is False
+
+    @pytest.mark.parametrize(
+        "explanation",
+        ["No changes needed.", "No change needed", "There were no errors.", "No corrections."],
+    )
+    def test_denying_a_change_it_just_made_counts_as_contradiction(self, explanation):
+        # translategemma:12b corrects "Tu eres" to "Tú eres" and then prints
+        # "No changes needed." beside it.
+        assert _contradicts("Tú eres muy amable.", explanation) is True
+
+    def test_a_real_explanation_that_ends_reassuringly_is_kept(self):
+        # Only a whole explanation that is nothing but a denial is dropped; this
+        # one teaches the learner something first.
+        assert _contradicts(
+            "Tú eres muy amable.",
+            "'Tú' needs an accent to distinguish it from 'tu' (your). "
+            "The rest of the sentence was already correct.",
+        ) is False
+
+    def test_the_correction_survives_its_bad_explanation(self, model):
+        # Only the prose is wrong. The learner should still see the fix.
+        model.answer = {
+            "has_errors": True,
+            "corrected": "Sí, gracias. ¿Tal vez algo internacional?",
+            "explanation": "The word 'tal' was removed because it's unnecessary.",
+        }
+        result = checker(model).check_message("Si, gracias. ¿Tal vez algo internacional?",
+                                              [], "Spanish")
+        assert result["has_errors"] is True
+        assert result["corrected"] == "Sí, gracias. ¿Tal vez algo internacional?"
+        assert result["explanation"] == ""
 
 
 class TestMarkdownIsNotPartOfTheSentence:

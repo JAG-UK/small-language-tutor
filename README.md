@@ -110,11 +110,16 @@ more than about 18 words to answer.
 Two results worth knowing about, because they are not what the names suggest:
 
 * **`phi4-mini` is a poor critic** — it caught half the errors, and repeatedly
-  handed back sentences like `yo soy muy cansado hoy` untouched. It is an
-  excellent conversation partner and it is still the default `SLT_MODEL`, but
-  in an app whose point is catching mistakes, leaving it to mark its own
-  homework is the weakest link. This is the single best reason to set
-  `SLT_CRITIC_MODEL`.
+  handed back sentences like `yo soy muy cansado hoy` untouched. It also
+  invents explanations: on 1 correction in 9 it described a change it had not
+  made, once reporting `Corrected 'true' to 'true', 'horrors' to 'errors'` for
+  a sentence containing none of those words, and once telling the learner a
+  word had been removed that was still there. `translategemma:12b` did that in
+  0 of 31. Fabricated grammar advice is the worst thing this app can produce,
+  so `grammar_checker.py` drops an explanation the sentences disprove — but a
+  guard is not a substitute for a model that does not need one. phi4-mini is an
+  excellent conversation partner and is still the default `SLT_MODEL`; this is
+  the single best reason to set `SLT_CRITIC_MODEL`.
 * **`gemma2:27b` catches everything and cannot keep quiet.** It was the only
   model to score 21/21, but it rewrote `Sí, en Madrid` — a perfectly good
   answer to "where do you live?" — every single time, and it is three times
