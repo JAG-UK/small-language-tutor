@@ -88,12 +88,36 @@
     </div>
     
     <script>
-        // Generate a unique session ID on page load
+        // A fresh id per page load. The server keys its in-memory copy by this;
+        // which conversation that copy holds is remembered separately, below.
         let sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+        // Which conversation this browser was last in. Without it a refresh
+        // leaves you staring at an empty page, with the conversation saved but
+        // nowhere in sight. Wrapped because storage throws in private windows,
+        // where losing your place is a nuisance rather than losing the work.
+        const RESUME_KEY = 'slt.conversation';
+
+        function rememberConversation(id) {
+            try {
+                if (id === null || id === undefined) localStorage.removeItem(RESUME_KEY);
+                else localStorage.setItem(RESUME_KEY, String(id));
+            } catch (error) { /* the conversation is still saved on the server */ }
+        }
+
+        function rememberedConversation() {
+            try {
+                const stored = localStorage.getItem(RESUME_KEY);
+                return stored ? Number(stored) : null;
+            } catch (error) {
+                return null;
+            }
+        }
         
         // Function to start a new conversation
         function startNewConversation() {
             sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            rememberConversation(null);
             // Clear the chat messages
             document.getElementById('chat-messages').innerHTML = '<div class="welcome-message"><p>Start a conversation in your target language! I\'ll help you practice.</p></div>';
             // Clear corrections/hints
@@ -114,7 +138,12 @@
         
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
-            loadInitialLearningPoints();
+            const resume = rememberedConversation();
+            if (resume) {
+                openConversation(resume);
+            } else {
+                loadInitialLearningPoints();
+            }
             
             // Allow Enter to send
             document.getElementById('chat-input').addEventListener('keydown', function(e) {
@@ -166,6 +195,9 @@
                 // Add AI response
                 setTimeout(() => addMessage('assistant', data.response), 500);
                 
+                // Now there is a conversation to come back to on a refresh.
+                rememberConversation(data.conversation_id);
+
                 // The critique of that message is a second request, made now
                 // that the reply is on screen. It fills the panel in behind,
                 // and the input is already usable again by then.
@@ -229,6 +261,7 @@
             })
             .then(r => r.ok ? r.json() : Promise.reject(r.status))
             .then(data => {
+                rememberConversation(data.id);
                 document.getElementById('language-select').value = data.language;
                 document.getElementById('tone-select').value = data.tone;
                 const messages = document.getElementById('chat-messages');
@@ -238,7 +271,12 @@
                 document.getElementById('conversation-list').hidden = true;
                 updateTranslationPlaceholder();
             })
-            .catch(error => console.error('Could not open conversation:', error));
+            .catch(error => {
+                // Most likely it has been deleted since. Forget it and start
+                // clean rather than trying to resume it again on every load.
+                rememberConversation(null);
+                if (error !== 404) console.error('Could not open conversation:', error);
+            });
         }
 
         function deleteConversation(id) {
@@ -246,6 +284,9 @@
                 .then(() => {
                     const row = document.querySelector(`.conversation-item[data-id="${id}"]`);
                     if (row) row.remove();
+                    // If it was the one on screen, stop showing it and stop
+                    // trying to resume it.
+                    if (rememberedConversation() === id) startNewConversation();
                 })
                 .catch(error => console.error('Could not delete conversation:', error));
         }

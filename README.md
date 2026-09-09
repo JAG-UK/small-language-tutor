@@ -96,7 +96,7 @@ machine](#reaching-it-from-another-machine).
 | `SLT_HOST` | `127.0.0.1` | where to bind. Anything else needs a password |
 | `SLT_PORT` | `5001` | 5000 collides with macOS AirPlay Receiver |
 | `SLT_DB` | `database.db` beside `app.py` | where conversations are kept |
-| `SLT_DEBUG` | off | the Werkzeug debugger. Loopback only — it runs what it is sent |
+| `SLT_DEBUG` | off | the Werkzeug debugger, and reloading on edit. Loopback only — it runs what it is sent |
 
 ## Choosing models
 
@@ -301,6 +301,10 @@ regretting:
 whatever is sent to it. That is fine on loopback and catastrophic anywhere else,
 so it is off by default and refused off-loopback. It used to be on, on every
 interface.
+
+It is also what makes the server pick up edits. With it off, Flask caches
+templates for the life of the process, so a change to `index.html` does nothing
+until a restart — set it while working on the app, and leave it off otherwise.
 
 If you do want this on the open internet rather than through a tunnel, put a
 reverse proxy with TLS in front of it and point that at the loopback port. Basic

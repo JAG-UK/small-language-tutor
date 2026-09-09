@@ -243,6 +243,14 @@ class TestConversationsSurviveTheServer:
     """They used to live only in memory, and the Save button that was meant to
     rescue them returned 400. Every turn is written through now."""
 
+    def test_the_reply_says_which_conversation_it_belongs_to(self, client):
+        """The page stores this and reopens it on the next load. Without it a
+        refresh left you on an empty screen with the conversation saved but
+        nowhere in sight."""
+        first = send(client, "hola")
+        assert first["conversation_id"] is not None
+        assert send(client, "adiós")["conversation_id"] == first["conversation_id"]
+
     def test_a_turn_is_saved_as_it_happens(self, client):
         send(client, "hola")
         import store
