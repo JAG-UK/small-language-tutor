@@ -1,15 +1,25 @@
-from flask import Flask, render_template, request, jsonify
-from models import Session, Conversation
-from ollama_client import OllamaClient
-from grammar_checker import GrammarChecker
-from datetime import datetime
-import json
 import html
+import json
+import os
+from datetime import datetime
+
+from flask import Flask, jsonify, render_template, request
+
+from grammar_checker import GrammarChecker
+from model_profiles import profile_for
+from models import Conversation, Session
+from ollama_client import OllamaClient
+from prompts import conversation_messages, translation_messages
 
 app = Flask(__name__)
 
-# Initialize clients
-ollama = OllamaClient(model="phi4-mini:3.8b")  # Configurable
+# Set SLT_MODEL to try another one — the prompts adapt to the family. See
+# model_profiles.py for what the app knows about each, and the README for
+# which ones are worth using.
+MODEL = os.environ.get("SLT_MODEL", "phi4-mini:3.8b")
+
+ollama = OllamaClient(model=MODEL)
+PROFILE = profile_for(MODEL)
 grammar_checker = GrammarChecker(ollama)
 
 # Current conversation state (in-memory, per session)
@@ -78,32 +88,10 @@ def chat():
             'timestamp': datetime.now().isoformat()
         })
     
-    # Get AI response
-    tone_instructions = {
-        'friendly': 'warm, casual, and approachable. Use informal language, friendly expressions, and show interest in the conversation.',
-        'professional': 'polite, formal, and business-like. Use formal language, proper titles if appropriate, and maintain a respectful distance.',
-        'flirty': 'playful, charming, and slightly suggestive. Use teasing language, compliments, and create a light romantic or playful atmosphere.'
-    }
-    
-    tone_desc = tone_instructions.get(tone, tone_instructions['friendly'])
-    
-    system_prompt = f"""You are a {language} native speaker having a natural conversation with the user. The tone of this conversation is {tone}: be {tone_desc}
+    # Get AI response. How much of the transcript travels, and whether the
+    # instruction goes in a system turn at all, is the model family's call.
+    messages_for_llm = conversation_messages(PROFILE, language, tone, conv["messages"])
 
-CRITICAL RULES:
-1. You MUST respond ENTIRELY in {language}. Do NOT use English or any other language.
-2. Every word, phrase, and sentence must be in {language} only.
-3. Maintain the {tone} tone throughout your responses - match the user's tone and style.
-4. Keep responses natural, conversational, and appropriate for a language learner.
-5. Keep responses brief (2-3 sentences max).
-6. If you need to explain something, explain it in {language}, not in English.
-7. If you don't understand what the user is saying, or it doesn't make sense in the context of the rest of the conversation, ask them for clarification.
-
-Remember: This is a language practice conversation in a {tone} tone. The entire conversation must be in {language}."""
-    
-    messages_for_llm = [
-        {"role": "system", "content": system_prompt}
-    ] + [{"role": msg["role"], "content": msg["content"]} for msg in conv['messages'][-10:]]  # Last 10 messages for context
-    
     ai_response = ollama.chat(messages_for_llm, language)
     ai_msg = {"role": "assistant", "content": ai_response, "timestamp": datetime.now().isoformat()}
     conv['messages'].append(ai_msg)
@@ -158,36 +146,9 @@ def translate():
     if not phrase:
         return jsonify({'error': 'No phrase provided'}), 400
     
-    # Language names for prompts
-    language_names = {
-        'es': 'Spanish',
-        'fr': 'French',
-        'de': 'German',
-        'it': 'Italian'
-    }
-    lang_name = language_names.get(target_language, target_language)
-    
-    # Determine translation direction
-    if direction == 'en-to-target':
-        # English to target language
-        system_prompt = f"""You are a professional translator. Translate the following English phrase into {lang_name}. 
-        Provide a natural, conversational translation that a native speaker would use. 
-        Do not provide explanations, only the translation."""
-        user_prompt = f"Translate this to {lang_name}: {phrase}"
-        response_language = target_language
-    else:
-        # Target language to English
-        system_prompt = f"""You are a professional translator. Translate the following {lang_name} phrase into English. 
-        Provide a natural, conversational translation that a native English speaker would use. 
-        Do not provide explanations, only the translation."""
-        user_prompt = f"Translate this {lang_name} phrase to English: {phrase}"
-        response_language = 'en'
-    
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ]
-    
+    messages = translation_messages(PROFILE, phrase, target_language, direction)
+    response_language = target_language if direction == "en-to-target" else "en"
+
     try:
         translation = ollama.chat(messages, response_language)
         return jsonify({'translation': translation.strip()})

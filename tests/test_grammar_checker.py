@@ -100,6 +100,71 @@ class TestTrustingTheTextNotTheFlag:
         assert result["corrected"] == "mi mensaje"
 
 
+class TestCommentaryIsNotACorrection:
+    """Asked to correct "vivo en madrid desde hace dos anos", phi4-mini:3.8b
+    variously answered "Your message is correct.", "No se realizaron
+    correcciones" and "Mi mensaje estaba bien escrito" — commentary in the
+    field meant for the sentence. Shown to a learner as their corrected words,
+    that is worse than showing nothing."""
+
+    ORIGINAL = "vivo en madrid desde hace dos anos"
+
+    @pytest.mark.parametrize(
+        "commentary",
+        [
+            "Your message is correct.",
+            "No se realizaron correcciones",
+            "Mi mensaje estaba bien escrito, no se hicieron cambios.",
+            "The sentence has no errors.",
+        ],
+    )
+    def test_commentary_is_refused(self, model, commentary):
+        model.answer = {"has_errors": True, "corrected": commentary, "explanation": "..."}
+        result = checker(model).check_message(self.ORIGINAL, [], "Spanish")
+
+        assert result["has_errors"] is False
+        assert result["corrected"] == self.ORIGINAL  # never the commentary
+
+    def test_a_real_correction_still_gets_through(self, model):
+        model.answer = {
+            "has_errors": False,
+            "corrected": "Vivo en Madrid desde hace dos años",
+            "explanation": "accents and capitals",
+        }
+        result = checker(model).check_message(self.ORIGINAL, [], "Spanish")
+
+        assert result["has_errors"] is True
+        assert result["corrected"] == "Vivo en Madrid desde hace dos años"
+
+    def test_a_heavy_but_genuine_rewrite_still_gets_through(self, model):
+        model.answer = {
+            "has_errors": True,
+            "corrected": "Hace dos años que vivo en Madrid",
+            "explanation": "reordered for naturalness",
+        }
+        assert checker(model).check_message(self.ORIGINAL, [], "Spanish")["has_errors"] is True
+
+    def test_commentary_that_quotes_the_sentence_back_is_refused(self, model):
+        # Shares every word with the original, so vocabulary alone lets it
+        # through; it is twice the length, which is what gives it away.
+        model.answer = {
+            "has_errors": True,
+            "corrected": "The message you provided, 'Vivo en Madrid desde hace dos anos', is correct.",
+            "explanation": "...",
+        }
+        result = checker(model).check_message(self.ORIGINAL, [], "Spanish")
+        assert result["has_errors"] is False
+        assert result["corrected"] == self.ORIGINAL
+
+    def test_a_correction_that_adds_a_missing_word_still_gets_through(self, model):
+        model.answer = {"has_errors": True, "corrected": "Yo vivo en Madrid", "explanation": "..."}
+        assert checker(model).check_message("vivo en madrid", [], "Spanish")["has_errors"] is True
+
+    def test_an_empty_correction_is_refused(self, model):
+        model.answer = {"has_errors": True, "corrected": "   ", "explanation": "..."}
+        assert checker(model).check_message(self.ORIGINAL, [], "Spanish")["corrected"] == self.ORIGINAL
+
+
 class TestWhenTheModelFails:
     """A failed check must never look like a passed one, and must never invent
     a correction — teaching the wrong thing is worse than teaching nothing."""
