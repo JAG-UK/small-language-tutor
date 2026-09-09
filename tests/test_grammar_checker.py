@@ -86,8 +86,8 @@ class TestTrustingTheTextNotTheFlag:
         assert checker(model).check_message("anos", [], "Spanish")["has_errors"] is True
 
     def test_a_capital_letter_counts(self, model):
-        model.answer = {"has_errors": False, "corrected": "Madrid", "explanation": ""}
-        assert checker(model).check_message("madrid", [], "Spanish")["has_errors"] is True
+        model.answer = {"has_errors": False, "corrected": "vivo en Madrid", "explanation": ""}
+        assert checker(model).check_message("vivo en madrid", [], "Spanish")["has_errors"] is True
 
     def test_reflowed_whitespace_does_not_count(self, model):
         # Models reflow freely; that is not something to teach a learner.
@@ -98,6 +98,54 @@ class TestTrustingTheTextNotTheFlag:
         model.answer = {"has_errors": True, "corrected": "", "explanation": "something"}
         result = checker(model).check_message("mi mensaje", [], "Spanish")
         assert result["corrected"] == "mi mensaje"
+
+
+class TestTidyingUpIsNotAnError:
+    """Every model tried here answers a perfectly good chat message by adding a
+    capital and a full stop. Reported as errors, those fill the learning panel
+    with remarks about punctuation nobody uses when chatting."""
+
+    def correct(self, model, corrected, original):
+        model.answer = {"has_errors": True, "corrected": corrected, "explanation": "e"}
+        return checker(model).check_message(original, [], "Spanish")
+
+    @pytest.mark.parametrize(
+        "corrected,original",
+        [
+            ("Ayer fui a la playa.", "ayer fui a la playa"),
+            ("Ayer fui a la playa", "ayer fui a la playa"),
+            ("ayer fui a la playa.", "ayer fui a la playa"),
+            ("¿Cómo estás?", "¿Cómo estás"),
+        ],
+    )
+    def test_a_capital_and_a_full_stop_are_not_worth_a_learning_point(
+        self, model, corrected, original
+    ):
+        assert self.correct(model, corrected, original)["has_errors"] is False
+
+    @pytest.mark.parametrize(
+        "corrected,original",
+        [
+            # A capital inside the sentence is a proper noun, which is the kind
+            # of thing this app exists to catch.
+            ("vivo en Madrid", "vivo en madrid"),
+            ("vivo en Madrid desde hace dos años", "vivo en madrid desde hace dos anos"),
+            # A missing accent changes the word, not its presentation.
+            ("Tú eres", "Tu eres"),
+            # Punctuation that carries meaning rather than tidiness.
+            ("¿Dónde vives?", "Dónde vives"),
+        ],
+    )
+    def test_anything_further_in_still_counts(self, model, corrected, original):
+        assert self.correct(model, corrected, original)["has_errors"] is True
+
+    def test_a_one_word_message_loses_its_proper_noun_to_this(self, model):
+        """The edge of the rule, recorded rather than hidden: in "madrid" the
+        capital is both the proper noun and the first letter of the sentence,
+        and they cannot be told apart, so nothing is said. The trade is worth
+        it — a full stop gets added to almost every good sentence, whereas a
+        message that is a bare proper noun and nothing else is rare."""
+        assert self.correct(model, "Madrid", "madrid")["has_errors"] is False
 
 
 class TestCommentaryIsNotACorrection:

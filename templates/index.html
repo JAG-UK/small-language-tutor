@@ -54,6 +54,7 @@
         <!-- Corrections Panel -->
         <div class="corrections-panel">
             <h3>Learning Points and Hints</h3>
+            <div id="review-pending" class="review-pending" hidden>Looking over what you wrote…</div>
             <div id="corrections-list">
                 <p class="empty-state">No learning points yet. Keep practicing!</p>
             </div>
@@ -182,8 +183,10 @@
                 // Add AI response
                 setTimeout(() => addMessage('assistant', data.response), 500);
                 
-                // Render all corrections and hints from the response
-                renderLearningPoints(data.all_corrections || [], data.all_hints || []);
+                // The critique of that message is a second request, made now
+                // that the reply is on screen. It fills the panel in behind,
+                // and the input is already usable again by then.
+                reviewTurn(data.turn);
             })
             .catch(error => {
                 console.error('Error:', error);
@@ -197,6 +200,29 @@
                 input.disabled = false;
                 input.focus();
             });
+        }
+        
+        // Ask what was wrong with the turn just sent. Failing quietly is the
+        // right behaviour here: no learning points is a worse conversation,
+        // not a broken one.
+        function reviewTurn(turn) {
+            if (typeof turn !== 'number') return;
+            const pending = document.getElementById('review-pending');
+            pending.hidden = false;
+            
+            fetch('/api/review', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({session_id: sessionId, turn: turn})
+            })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (data) {
+                    renderLearningPoints(data.all_corrections || [], data.all_hints || []);
+                }
+            })
+            .catch(error => console.error('Review failed:', error))
+            .finally(() => { pending.hidden = true; });
         }
         
         function addMessage(role, content) {

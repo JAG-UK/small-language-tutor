@@ -44,13 +44,28 @@ def _tidy(text):
     return re.sub(r"\s+", " ", (text or "")).strip()
 
 
-def _differs(corrected, original):
-    """Whether a correction actually changed anything a learner would notice.
+def _cosmetic(text):
+    """The sentence with the two things chat does not observe removed: a capital
+    on the first word, and a full stop at the end."""
+    stripped = _tidy(text).rstrip(".!?")
+    return stripped[:1].lower() + stripped[1:]
 
-    Whitespace is normalised because models reflow freely; accents and case are
-    emphatically not, since those are usually the whole correction.
+
+def _differs(corrected, original):
+    """Whether a correction changed anything worth telling a learner about.
+
+    Whitespace is normalised because models reflow freely; accents and case
+    within the sentence are emphatically not, since those are usually the whole
+    correction — "madrid" to "Madrid" is exactly the kind of thing to catch.
+
+    But every model tried here answers a perfectly good chat message by adding a
+    capital and a full stop, and reporting that as an error fills the panel with
+    remarks about punctuation nobody uses when chatting. So a change confined to
+    the opening capital and the closing stop does not count as one.
     """
-    return _tidy(corrected) != _tidy(original)
+    if _tidy(corrected) == _tidy(original):
+        return False
+    return _cosmetic(corrected) != _cosmetic(original)
 
 
 def _words(text):

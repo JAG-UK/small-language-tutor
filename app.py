@@ -18,12 +18,44 @@ app = Flask(__name__)
 # which ones are worth using.
 MODEL = os.environ.get("SLT_MODEL", "phi4-mini:3.8b")
 
+# The critic never speaks to the learner and never holds up the reply, so it
+# can be a slower and more careful model than the one making conversation —
+# two jobs that want different things from a model. Both default to the same
+# one, because two models means two lots of weights resident at once, which on
+# a laptop is the thing most likely to make this worse rather than better.
+CRITIC_MODEL = os.environ.get("SLT_CRITIC_MODEL", MODEL)
+
 ollama = OllamaClient(model=MODEL)
 PROFILE = profile_for(MODEL)
-grammar_checker = GrammarChecker(ollama)
+
+# A deliberately generous timeout when the critic is its own model: whatever it
+# is, it was chosen for care rather than speed, and nobody is waiting on it.
+critic = ollama if CRITIC_MODEL == MODEL else OllamaClient(model=CRITIC_MODEL, timeout=300)
+grammar_checker = GrammarChecker(critic)
 
 # Current conversation state (in-memory, per session)
 conversations = {}  # Simple dict for now, keyed by session_id
+
+
+def _new_conversation(language, tone):
+    return {
+        'messages': [],
+        'language': language,
+        'tone': tone,
+        'corrections': [],
+        'hints': [],
+        # Turns already critiqued, so a repeated or retried review does not
+        # file the same learning point twice. Runtime only; not saved.
+        'reviewed': set(),
+    }
+
+
+def _learning_points(conv):
+    return {
+        'all_corrections': conv.get('corrections', []),
+        'all_hints': conv.get('hints', []),
+    }
+
 
 @app.route('/')
 def index():
@@ -31,107 +63,127 @@ def index():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Handle chat messages"""
+    """The reply, and only the reply.
+
+    This used to correct the message, then look for hints, then answer it —
+    three round trips to a model before the learner saw a word back. The two
+    critical ones are worth having but not worth waiting for: the reply is the
+    conversation, the critique is homework. So this returns as soon as there is
+    something to say, and hands back a turn number the client uses to ask for
+    the critique afterwards, at /api/review.
+
+    Measured on phi4-mini:3.8b: 2.3s to a reply before, 0.4s after.
+    """
     data = request.json
     session_id = data.get('session_id', 'default')
     user_message = data.get('message', '')
     language = data.get('language', 'es')  # Default to Spanish
     tone = data.get('tone', 'friendly')  # Default to friendly
-    
-    # Get or create conversation
+
     if session_id not in conversations:
-        conversations[session_id] = {
-            'messages': [],
-            'language': language,
-            'tone': tone,
-            'corrections': [],
-            'hints': []
-        }
-    
+        conversations[session_id] = _new_conversation(language, tone)
+
     conv = conversations[session_id]
-    # Update tone if changed
+    # Both can be changed from the header mid-conversation, and the review that
+    # follows this turn reads them from here rather than from its own request.
+    conv['language'] = language
     conv['tone'] = tone
-    
-    # Add user message
-    user_msg = {"role": "user", "content": user_message, "timestamp": datetime.now().isoformat()}
-    conv['messages'].append(user_msg)
-    
-    # Check grammar (with tone awareness)
-    correction = grammar_checker.check_message(user_message, conv['messages'], language, tone)
-    
-    # Debug: Log correction result
-    print(f"DEBUG: Correction result: {correction}")
-    print(f"DEBUG: has_errors value: {correction.get('has_errors')}, type: {type(correction.get('has_errors'))}")
-    
-    # Handle both boolean and string values for has_errors
-    has_errors = correction.get('has_errors', False)
-    if isinstance(has_errors, str):
-        has_errors = has_errors.lower() in ('true', '1', 'yes')
-    
-    if has_errors:
-        print(f"DEBUG: Adding correction to session {session_id}")
-        conv['corrections'].append({
-            'message': user_message,
-            'corrected': correction.get('corrected'),
-            'explanation': correction.get('explanation'),
-            'timestamp': datetime.now().isoformat()
-        })
-    else:
-        print(f"DEBUG: No errors detected or has_errors is False")
-    
-    # Get hints for naturalness improvement (with tone awareness)
-    hints_result = grammar_checker.get_hints(user_message, conv['messages'], language, tone)
-    if hints_result.get('has_hints') and hints_result.get('hints'):
-        conv['hints'].append({
-            'message': user_message,
-            'hints': hints_result.get('hints', []),
-            'timestamp': datetime.now().isoformat()
-        })
-    
-    # Get AI response. How much of the transcript travels, and whether the
-    # instruction goes in a system turn at all, is the model family's call.
+
+    conv['messages'].append(
+        {"role": "user", "content": user_message, "timestamp": datetime.now().isoformat()}
+    )
+    turn = len(conv['messages']) - 1  # the message /api/review will critique
+
+    # How much of the transcript travels, and whether the instruction goes in a
+    # system turn at all, is the model family's call.
     messages_for_llm = conversation_messages(PROFILE, language, tone, conv["messages"])
 
     ai_response = ollama.chat(messages_for_llm, language)
     ai_msg = {"role": "assistant", "content": ai_response, "timestamp": datetime.now().isoformat()}
     conv['messages'].append(ai_msg)
-    
-    # Prepare correction data for response (if errors found)
+
+    return jsonify({
+        'response': ai_response,
+        'turn': turn,
+        'messages': conv['messages'],
+    })
+
+@app.route('/api/review', methods=['POST'])
+def review():
+    """What was wrong with one turn, and how it could sound more like a native.
+
+    Asked for after the reply is on screen, so the time it costs is spent while
+    the learner is reading rather than while they are waiting for an answer.
+
+    It is a separate request rather than a background thread because the work
+    only matters if someone is still there to read it: a client that has gone
+    away simply never asks. The two calls stay in series — running them at once
+    measured no faster, since Ollama serialises requests to a single model.
+    """
+    data = request.json
+    session_id = data.get('session_id', 'default')
+    turn = data.get('turn')
+
+    conv = conversations.get(session_id)
+    if conv is None or not isinstance(turn, int) or not 0 <= turn < len(conv['messages']):
+        # Conversations live in memory, so a restart loses them, and there is
+        # nothing to say about a turn we no longer hold.
+        return jsonify({'error': 'No such turn'}), 404
+
+    message = conv['messages'][turn]
+    if message['role'] != 'user':
+        return jsonify({'error': 'Only the learner\'s own turns are reviewed'}), 400
+
+    if turn in conv['reviewed']:
+        return jsonify({'correction': None, 'hints': None, **_learning_points(conv)})
+    conv['reviewed'].add(turn)
+
+    text = message['content']
+    language = conv['language']
+    tone = conv['tone']
+    # Up to and including the turn being judged. The reply that came after it
+    # is not evidence about it, and would push the sentence out of view.
+    context = conv['messages'][: turn + 1]
+
+    correction = grammar_checker.check_message(text, context, language, tone)
     correction_data = None
-    if has_errors:
+    if correction.get('has_errors'):
         correction_data = {
-            'message': user_message,
+            'message': text,
             'corrected': correction.get('corrected'),
             'explanation': correction.get('explanation'),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
         }
-    
-    # Prepare hints data for response (if hints found)
+        conv['corrections'].append(correction_data)
+
+    hints_result = grammar_checker.get_hints(text, context, language, tone)
     hints_data = None
     if hints_result.get('has_hints') and hints_result.get('hints'):
         hints_data = {
-            'message': user_message,
+            'message': text,
             'hints': hints_result.get('hints', []),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
         }
-    
-    # Return everything in one response - include all corrections and hints for this conversation
+        conv['hints'].append(hints_data)
+
     return jsonify({
-        'response': ai_response,
-        'correction': correction_data,  # New correction from this message (if any)
-        'hints': hints_data,  # New hints from this message (if any)
-        'all_corrections': conv.get('corrections', []),  # Full history
-        'all_hints': conv.get('hints', []),  # Full history
-        'messages': conv['messages']
+        'correction': correction_data,  # new from this turn, if any
+        'hints': hints_data,
+        **_learning_points(conv),  # the full history, for redrawing the panel
     })
 
 @app.route('/api/practice', methods=['POST'])
 def practice():
-    """Check a practice sentence without adding to conversation"""
+    """Check a practice sentence without adding to conversation.
+
+    Unlike the chat critique this one is on the critical path — the learner
+    pressed Check and is waiting for the answer — so a deliberately slow
+    SLT_CRITIC_MODEL will be felt here.
+    """
     data = request.json
     sentence = data.get('sentence', '')
     language = data.get('language', 'es')
-    
+
     correction = grammar_checker.check_message(sentence, [], language)
     return jsonify(correction)
 
