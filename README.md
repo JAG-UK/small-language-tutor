@@ -7,7 +7,8 @@ Language learning reinforcement app based on local small language models.
 - **Interactive Chat**: Practice conversations in your target language with an AI tutor
 - **Grammar Corrections**: Real-time feedback on mistakes with explanations
 - **Practice Area**: Test sentences before sending them to the conversation
-- **Conversation History**: Save and review past conversations with corrections
+- **Conversation History**: Every turn is saved as it happens; reopen any past
+  conversation, with its corrections, and carry on from where you left off
 
 ## Setup
 
@@ -94,6 +95,7 @@ machine](#reaching-it-from-another-machine).
 | `SLT_PASSWORD` | unset | required before anything is served; mandatory off loopback |
 | `SLT_HOST` | `127.0.0.1` | where to bind. Anything else needs a password |
 | `SLT_PORT` | `5001` | 5000 collides with macOS AirPlay Receiver |
+| `SLT_DB` | `database.db` beside `app.py` | where conversations are kept |
 | `SLT_DEBUG` | off | the Werkzeug debugger. Loopback only — it runs what it is sent |
 
 ## Choosing models
@@ -319,6 +321,25 @@ This is a personal tool, not a service.
 - **SLM**: Ollama API integration
 - **Future**: Architecture supports voice conversations (to be implemented)
 
+### Conversations keep themselves
+
+Every turn is written to SQLite as it happens, so nothing depends on remembering
+to save: close the laptop, drop the tunnel, restart the server, and the
+conversation is still there. **Conversations** lists them; opening one puts it
+back on the server as well as on screen, so the partner still has the history
+and you can carry on rather than only read it. Reopening does not re-mark
+anything already marked.
+
+The database is at `database.db` beside `app.py`, or wherever `SLT_DB` says.
+Beside the file rather than in the working directory, because a relative path
+silently gives you a different database when the app is started from somewhere
+else.
+
+Columns the model gains are added to an existing database at startup.
+`create_all()` creates missing tables and stops there, so `hints` — added to the
+model after the file existed — was simply absent, and every save failed with
+`no such column: conversations.hints`.
+
 ### A turn is two requests
 
 `POST /api/chat` returns the conversational reply and nothing else, along with a
@@ -344,7 +365,8 @@ one.
 ```
 small-language-tutor/
 ├── app.py                 # Flask backend server
-├── models.py              # Database models
+├── models.py              # The conversations table, and keeping it up to date
+├── store.py               # Saving, reopening, listing and deleting
 ├── ollama_client.py       # SLM integration wrapper
 ├── grammar_checker.py     # Corrections and hints, and the guards on them
 ├── prompts.py             # Everything the models are asked, in one place

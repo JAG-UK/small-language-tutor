@@ -10,7 +10,7 @@ from flask import Flask, jsonify, render_template, request
 import hosting
 from grammar_checker import GrammarChecker
 from model_profiles import profile_for
-from models import Conversation, Session
+import store
 from ollama_client import OllamaClient
 from prompts import conversation_messages, translation_messages
 
@@ -51,19 +51,6 @@ grammar_checker = GrammarChecker(critic)
 conversations = {}  # Simple dict for now, keyed by session_id
 
 
-def _new_conversation(language, tone):
-    return {
-        'messages': [],
-        'language': language,
-        'tone': tone,
-        'corrections': [],
-        'hints': [],
-        # Turns already critiqued, so a repeated or retried review does not
-        # file the same learning point twice. Runtime only; not saved.
-        'reviewed': set(),
-    }
-
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -88,7 +75,7 @@ def chat():
     tone = data.get('tone', 'friendly')  # Default to friendly
 
     if session_id not in conversations:
-        conversations[session_id] = _new_conversation(language, tone)
+        conversations[session_id] = store.new_conversation(language, tone)
 
     conv = conversations[session_id]
     # Both can be changed from the header mid-conversation, and the review that
@@ -108,10 +95,12 @@ def chat():
     ai_response = ollama.chat(messages_for_llm, language)
     ai_msg = {"role": "assistant", "content": ai_response, "timestamp": datetime.now().isoformat()}
     conv['messages'].append(ai_msg)
+    store.save(conv)  # every turn, so nothing is lost to a restart
 
     return jsonify({
         'response': ai_response,
         'turn': turn,
+        'conversation_id': conv['id'],
         'messages': conv['messages'],
     })
 
@@ -169,6 +158,7 @@ def review():
             'timestamp': datetime.now().isoformat(),
         })
 
+    store.save(conv)  # the learning points belong to the conversation
     return render_learning_points(conv)
 
 @app.route('/api/practice', methods=['POST'])
@@ -318,66 +308,73 @@ def get_corrections():
     """The learning panel for a conversation, for the page to show on load."""
     return render_learning_points(conversations.get(request.args.get('session_id', 'default')))
 
-@app.route('/api/save', methods=['POST'])
-def save_conversation():
-    """Save conversation to database"""
-    data = request.json
-    session_id = data.get('session_id', 'default')
-    
-    if session_id not in conversations:
-        return '<span style="color: red;">No conversation to save</span>', 400
-    
-    conv = conversations[session_id]
-    session = Session()
-    
-    db_conv = Conversation(
-        title=conv['messages'][0]['content'][:50] if conv['messages'] else "Untitled",
-        language=conv['language'],
-        messages=json.dumps(conv['messages']),
-        corrections=json.dumps(conv.get('corrections', [])),
-        hints=json.dumps(conv.get('hints', []))
-    )
-    
-    session.add(db_conv)
-    session.commit()
-    session.close()
-    
-    return '<span style="color: green;">✓ Saved!</span>'
-
 @app.route('/api/conversations', methods=['GET'])
 def list_conversations():
-    """List all saved conversations"""
-    session = Session()
-    convs = session.query(Conversation).order_by(Conversation.created_at.desc()).all()
-    result = [{
-        'id': c.id,
-        'title': c.title,
-        'language': c.language,
-        'created_at': c.created_at.isoformat(),
-        'message_count': len(json.loads(c.messages))
-    } for c in convs]
-    session.close()
-    return jsonify({'conversations': result})
+    """The saved conversations, as the list the page shows.
 
-@app.route('/api/conversations/<int:conv_id>', methods=['GET'])
-def get_conversation(conv_id):
-    """Get a specific conversation"""
-    session = Session()
-    conv = session.query(Conversation).filter_by(id=conv_id).first()
-    if not conv:
-        return jsonify({'error': 'Not found'}), 404
-    
-    result = {
-        'id': conv.id,
-        'title': conv.title,
-        'language': conv.language,
-        'created_at': conv.created_at.isoformat(),
-        'messages': json.loads(conv.messages),
-        'corrections': json.loads(conv.corrections) if conv.corrections else [],
-        'hints': json.loads(conv.hints) if hasattr(conv, 'hints') and conv.hints else []
-    }
-    session.close()
-    return jsonify(result)
+    Rendered here rather than in the page for the same reason the learning panel
+    is: one renderer cannot disagree with itself, and a browser holding an old
+    copy of the page cannot render the new shape wrongly.
+    """
+    saved = store.recent()
+    if not saved:
+        return '<p class="empty-state">Nothing saved yet. Start talking.</p>'
+
+    items = ''
+    for row in saved:
+        title = html.escape(row['title'])
+        when = row['updated_at'].strftime('%d %b %H:%M') if row['updated_at'] else ''
+        turns = row['message_count']
+        items += f'''
+        <div class="conversation-item" data-id="{row['id']}">
+            <button class="conversation-open" onclick="openConversation({row['id']})">
+                <span class="conversation-title">{title}</span>
+                <span class="conversation-meta">{html.escape(when)} · {turns} messages</span>
+            </button>
+            <button class="conversation-delete" title="Delete"
+                    onclick="deleteConversation({row['id']})">×</button>
+        </div>
+        '''
+    return items
+
+
+@app.route('/api/conversations/<int:conv_id>/open', methods=['POST'])
+def open_conversation(conv_id):
+    """Pick a stored conversation up where it was left.
+
+    The transcript alone would only be something to look at: the partner reads
+    its history from the server, so without putting it back there the model
+    would answer the next message knowing nothing of what came before.
+    """
+    data = request.json or {}
+    session_id = data.get('session_id', 'default')
+
+    conv = store.load(conv_id)
+    if conv is None:
+        return jsonify({'error': 'No such conversation'}), 404
+
+    conversations[session_id] = conv
+    return jsonify({
+        'id': conv['id'],
+        'language': conv['language'],
+        'tone': conv['tone'],
+        'messages': conv['messages'],
+        'panel': render_learning_points(conv),
+    })
+
+
+@app.route('/api/conversations/<int:conv_id>', methods=['DELETE'])
+def delete_conversation(conv_id):
+    """Forget one. Also from memory, so a page still holding its session id
+    cannot write it back on the next turn."""
+    if not store.delete(conv_id):
+        return jsonify({'error': 'No such conversation'}), 404
+
+    for session_id, conv in list(conversations.items()):
+        if conv.get('id') == conv_id:
+            del conversations[session_id]
+    return jsonify({'deleted': conv_id})
+
 
 def main():
     """Start the server, or explain why the configuration is not one to start.

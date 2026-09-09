@@ -237,3 +237,126 @@ class TestExplanationsThatAreReallyLists:
         }], "hints": []})
         assert "a French word.<br>" in panel
         assert "*" not in panel.split("explanation")[1][:400]  # no bullets left in the markup
+
+
+class TestConversationsSurviveTheServer:
+    """They used to live only in memory, and the Save button that was meant to
+    rescue them returned 400. Every turn is written through now."""
+
+    def test_a_turn_is_saved_as_it_happens(self, client):
+        send(client, "hola")
+        import store
+        assert [row["title"] for row in store.recent()] == ["hola"]
+
+    def test_the_whole_exchange_is_there_without_anyone_pressing_anything(self, client):
+        send(client, "hola")
+        send(client, "adiós")
+        import store
+        assert store.recent()[0]["message_count"] == 4  # two turns each way
+
+    def test_a_conversation_is_one_row_however_long_it_runs(self, client):
+        for message in ("hola", "adiós", "hasta luego"):
+            send(client, message)
+        import store
+        assert len(store.recent()) == 1
+
+    def test_learning_points_are_saved_with_it(self, client):
+        turn = send(client, "hola")["turn"]
+        client.post("/api/review", json={"session_id": "s1", "turn": turn})
+        import store
+        conv_id = store.recent()[0]["id"]
+        assert store.load(conv_id)["corrections"][0]["corrected"] == "HOLA"
+
+    def test_reopening_after_the_server_forgets_everything(self, client):
+        send(client, "hola")
+        import store
+        conv_id = store.recent()[0]["id"]
+
+        app_module.conversations.clear()  # what a restart looks like
+
+        opened = client.post(f"/api/conversations/{conv_id}/open",
+                             json={"session_id": "fresh"}).get_json()
+        assert [m["content"] for m in opened["messages"]] == ["hola", "¡Claro!"]
+
+    def test_and_the_conversation_can_then_be_continued(self, client):
+        """The point of putting it back on the server: the partner reads its
+        history from there, so a transcript alone would only be something to
+        look at."""
+        send(client, "vivo en Madrid")
+        import store
+        conv_id = store.recent()[0]["id"]
+        app_module.conversations.clear()
+
+        client.post(f"/api/conversations/{conv_id}/open", json={"session_id": "fresh"})
+        client.calls["chat"].clear()
+        send(client, "¿y tú?", session="fresh")
+
+        sent = [m["content"] for m in client.calls["chat"][0]]
+        assert any("vivo en Madrid" in content for content in sent)
+
+    def test_reopening_does_not_critique_the_whole_history_again(self, client):
+        turn = send(client, "hola")["turn"]
+        client.post("/api/review", json={"session_id": "s1", "turn": turn})
+        import store
+        conv_id = store.recent()[0]["id"]
+        app_module.conversations.clear()
+        client.calls["check"].clear()
+
+        client.post(f"/api/conversations/{conv_id}/open", json={"session_id": "fresh"})
+        client.post("/api/review", json={"session_id": "fresh", "turn": turn})
+
+        assert client.calls["check"] == []
+
+    def test_the_language_and_tone_come_back_too(self, client):
+        send(client, "salut", language="fr", tone="professional")
+        import store
+        conv_id = store.recent()[0]["id"]
+        app_module.conversations.clear()
+
+        opened = client.post(f"/api/conversations/{conv_id}/open",
+                             json={"session_id": "fresh"}).get_json()
+        assert (opened["language"], opened["tone"]) == ("fr", "professional")
+
+    def test_opening_something_that_is_not_there(self, client):
+        assert client.post("/api/conversations/9999/open",
+                           json={"session_id": "fresh"}).status_code == 404
+
+
+class TestTheConversationList:
+    def test_nothing_saved_says_so(self, client):
+        assert "Nothing saved yet" in client.get("/api/conversations").get_data(as_text=True)
+
+    def test_shows_what_was_said_and_when(self, client):
+        send(client, "hola amigo")
+        listing = client.get("/api/conversations").get_data(as_text=True)
+        assert "hola amigo" in listing
+        assert "2 messages" in listing
+
+    def test_escapes_the_title(self, client):
+        send(client, "<script>alert(1)</script>")
+        listing = client.get("/api/conversations").get_data(as_text=True)
+        assert "<script>" not in listing
+        assert "&lt;script&gt;" in listing
+
+    def test_deleting_one_removes_it(self, client):
+        send(client, "hola")
+        import store
+        conv_id = store.recent()[0]["id"]
+
+        assert client.delete(f"/api/conversations/{conv_id}").status_code == 200
+        assert store.recent() == []
+
+    def test_deleting_it_also_forgets_it_in_memory(self, client):
+        """Otherwise the page still holding that session would write the deleted
+        conversation straight back on its next turn."""
+        send(client, "hola")
+        import store
+        conv_id = store.recent()[0]["id"]
+
+        client.delete(f"/api/conversations/{conv_id}")
+        send(client, "otra vez")
+
+        assert [row["title"] for row in store.recent()] == ["otra vez"]
+
+    def test_deleting_what_is_not_there(self, client):
+        assert client.delete("/api/conversations/9999").status_code == 404
