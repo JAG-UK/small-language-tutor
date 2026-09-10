@@ -64,7 +64,7 @@ body {
     border-radius: 6px;
 }
 
-.save-btn, .new-conversation-btn {
+.report-btn, .save-btn, .new-conversation-btn {
     padding: 0.5rem 1rem;
     border: none;
     border-radius: 6px;
@@ -81,6 +81,11 @@ body {
 
 .new-conversation-btn {
     background: #2196F3;
+    color: white;
+}
+
+.report-btn {
+    background: #6b5b95;
     color: white;
 }
 
@@ -184,6 +189,15 @@ body {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* The bubble the reply will appear in, holding a spinner until it does. Sized
+   so that swapping the spinner for the text does not make the row jump. */
+.pending-reply .message-content {
+    display: flex;
+    align-items: center;
+    min-height: 1.4em;
+    color: #888;
 }
 
 /* The button's spinner is white because it sits on a blue button. These sit on
@@ -301,11 +315,103 @@ body {
 
 /* The saved conversations, dropped over the transcript. Every turn is written
    through as it happens, so this is history rather than a list of things kept. */
-.conversation-list {
+.conversation-list, .report-card {
     max-height: 60%;
     overflow-y: auto;
     border-bottom: 1px solid #e0e0e0;
     background: #fafafa;
+}
+
+/* The report card. Two halves that are not equally trustworthy: what was
+   counted, and what a model made of it. The counted half leads. */
+.report-card {
+    padding: 0.75rem 1rem 1rem;
+}
+
+.report-tally {
+    color: #666;
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+}
+
+.report-section h4, .report-theme h4 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #4a5568;
+    margin-bottom: 0.4rem;
+}
+
+.report-theme {
+    border-left: 3px solid #4a90d9;
+    padding: 0.5rem 0 0.5rem 0.75rem;
+    margin-bottom: 0.85rem;
+    background: #fff;
+}
+
+.theme-what {
+    font-size: 0.9rem;
+    margin-bottom: 0.4rem;
+}
+
+.theme-examples {
+    list-style: none;
+    margin-bottom: 0.4rem;
+}
+
+.theme-examples li {
+    font-style: italic;
+    color: #555;
+    font-size: 0.85rem;
+    padding-left: 0.75rem;
+    border-left: 2px solid #e2e8f0;
+    margin-bottom: 0.2rem;
+}
+
+.theme-practise {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #2c5282;
+}
+
+/* Counted, not guessed: the same word put right more than once. */
+.slip-list {
+    list-style: none;
+    margin-bottom: 1rem;
+}
+
+.slip-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    font-size: 0.9rem;
+}
+
+.slip-wrote {
+    text-decoration: line-through;
+    color: #a0525b;
+}
+
+.slip-arrow {
+    color: #aaa;
+}
+
+.slip-right {
+    font-weight: 600;
+    color: #2f7a4d;
+}
+
+.slip-times {
+    margin-left: auto;
+    color: #888;
+    font-size: 0.8rem;
+}
+
+.report-note {
+    color: #777;
+    font-size: 0.85rem;
+    font-style: italic;
 }
 
 .conversation-item {

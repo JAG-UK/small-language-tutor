@@ -9,6 +9,7 @@ Language learning reinforcement app based on local small language models.
 - **Practice Area**: Test sentences before sending them to the conversation
 - **Conversation History**: Every turn is saved as it happens; reopen any past
   conversation, with its corrections, and carry on from where you left off
+- **Report Card**: What your recent mistakes have in common, and what to work on
 
 ## Setup
 
@@ -267,8 +268,12 @@ The app binds to `127.0.0.1`. Nothing outside the machine it runs on can reach
 it, which is the right default for something that answers with a GPU and keeps
 a database of your conversations.
 
-To use it from your laptop while it runs on the box with the card in it, forward
-the port over SSH rather than opening one:
+There are two good ways to reach it anyway, and which one depends on what you
+are holding.
+
+### From a laptop, over SSH
+
+Forward the port rather than opening one:
 
 ```bash
 tools/tunnel.sh you@gpu-box
@@ -277,6 +282,35 @@ tools/tunnel.sh you@gpu-box
 Then open `http://localhost:5001`. Leave it running; Ctrl-C closes it. The far
 end never puts a port on the network — SSH carries the traffic, and supplies the
 encryption that HTTP Basic does not.
+
+This is the right tool between two machines on the same network, or over a link
+you already have. It is the wrong one for a phone: iOS and Android both suspend
+the SSH app the moment you switch to the browser, which is exactly when the
+forward needs to be alive, and SSH is TCP, so the session dies every time the
+handset moves between wifi and cell.
+
+### From a phone, over WireGuard
+
+Put the phone on the network the box is on, and reach it by its LAN address like
+anything else there. WireGuard is the right shape for this: it runs at the OS
+level so the browser benefits without a second app in the foreground, and it is
+UDP, so roaming between wifi and cell reconnects instead of breaking.
+
+The app then binds to the LAN address rather than loopback, which means a
+password — and it will not start without one:
+
+```bash
+export SLT_HOST=192.168.1.42        # the box's address on your VLAN
+export SLT_PASSWORD='something long'
+python app.py
+```
+
+One UDP port for WireGuard is the only thing your firewall needs to allow, and
+the tutor's own port stays off the public internet entirely. The startup warning
+about HTTP Basic being readable in transit is about a bare HTTP port; inside
+WireGuard the traffic is already encrypted on the wire, so the password is not
+travelling in the clear. It is still worth setting, because it is what stops
+anything *else* on the VLAN from using your GPU.
 
 ### The password
 
@@ -316,9 +350,10 @@ It is also what makes the server pick up edits. With it off, Flask caches
 templates for the life of the process, so a change to `index.html` does nothing
 until a restart — set it while working on the app, and leave it off otherwise.
 
-If you do want this on the open internet rather than through a tunnel, put a
-reverse proxy with TLS in front of it and point that at the loopback port. Basic
-auth over plain HTTP sends the password merely encoded.
+If you do want this on the open internet — rather than through a tunnel or a
+VPN — put a reverse proxy with TLS in front of it and point that at the loopback
+port. Basic auth over plain HTTP sends the password merely encoded, and the open
+internet is the one place where that matters most.
 
 ### One user
 
@@ -354,6 +389,41 @@ Columns the model gains are added to an existing database at startup.
 model after the file existed — was simply absent, and every save failed with
 `no such column: conversations.hints`.
 
+### The report card
+
+**Report card** looks over the corrections from recent conversations and says
+what they have in common. It is in two halves, and they are not equally
+trustworthy — the panel shows them as such.
+
+The first half is counted. That you wrote `anos` for `años` four times is
+arithmetic over the corrections, and arithmetic does not invent anything. Only
+one-for-one word swaps are counted: a correction that rewrites half a sentence
+says something about that sentence and nothing countable about a habit, and
+counting it would bury the swaps that do repeat.
+
+The second half is a model's reading of the same mistakes, grouped into a few
+areas with something to practise. Every example it gives is checked against what
+the learner actually wrote — loosely, since accents and capitals are exactly what
+tends to differ between the quote and the original. An example that cannot be
+found is dropped, and a theme left with none goes with it. Asked to find
+patterns, a model will happily illustrate one with a plausible mistake nobody
+made, and a report card that invents your mistakes is worse than no report card.
+
+Two things learned while building it, both the same lesson in different clothes:
+
+* The corrections go to the model as bare wrote/should-be pairs, without the
+  explanations that came with them. Those are the least reliable thing the
+  critic produces, and a wrong one repeated under a heading is a wrong lesson.
+* `examples` is `minItems: 1` in the schema. Without it, a model that ran long
+  in the prose fields closed the array empty, every theme was dropped for having
+  nothing behind it, and the report came back saying nothing stood out — on
+  about half of all runs. With that and a prompt asking for one sentence per
+  field, four runs out of four produced four themes.
+
+It costs one model call over the whole pile, so it takes 20 seconds or so and is
+asked for rather than produced on every turn. Below four corrections it does not
+ask at all: there is no pattern in three mistakes, only three mistakes.
+
 ### A turn is two requests
 
 `POST /api/chat` returns the conversational reply and nothing else, along with a
@@ -381,6 +451,7 @@ small-language-tutor/
 ├── app.py                 # Flask backend server
 ├── models.py              # The conversations table, and keeping it up to date
 ├── store.py               # Saving, reopening, listing and deleting
+├── report.py             # What the mistakes add up to
 ├── ollama_client.py       # SLM integration wrapper
 ├── grammar_checker.py     # Corrections and hints, and the guards on them
 ├── prompts.py             # Everything the models are asked, in one place

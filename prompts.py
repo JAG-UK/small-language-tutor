@@ -210,6 +210,65 @@ def hints_messages(profile: ModelProfile, language: str, tone: str, message: str
     )
 
 
+# --- the report card -------------------------------------------------------
+
+
+def _report_system(profile: ModelProfile, language: str, max_themes: int) -> str:
+    lang = language_name(language)
+
+    if profile.terse:
+        return (
+            f"You are a {lang} tutor looking over a learner's recent mistakes.\n"
+            f"Group them into at most {max_themes} areas to work on. For each: a short "
+            f"name, one sentence in English on what the learner keeps doing, two or "
+            f"three of their own mistakes quoted from the list, and one thing to "
+            f"practise in a single sentence.\n"
+            f"Be brief. This is read in a side panel, not a textbook.\n"
+            f"Only use mistakes from the list. Never invent one to illustrate a "
+            f"point.\n"
+            f"Write in English: this is for the learner to read about their {lang}."
+        )
+
+    return f"""You are a {lang} tutor writing a short report for a learner, based on the
+mistakes they actually made over their recent conversations.
+
+Group the mistakes into at most {max_themes} areas worth working on. Prefer the
+patterns that recur over the ones that happened once: the point of this is to
+say what to practise, not to list everything.
+
+For each area give:
+1. A short name for it — "Gender agreement", "Missing accents", "Ser vs estar"
+2. What the learner keeps doing, in English, in ONE sentence
+3. Two or three examples, quoted from the list you were given
+4. One concrete thing to practise, in ONE sentence — something they could do
+   today, not "study more grammar"
+
+Keep every part short. This is read in a side panel, not a textbook, and a long
+answer is cut off before the learner reaches the end of it.
+
+CRITICAL: use only mistakes from the list. If a pattern occurs to you that the
+list does not support, leave it out. A report that invents a learner's mistakes
+is worse than a short one.
+
+Write in English. The mistakes are in {lang}; the report is for the learner to
+read about their {lang}."""
+
+
+def report_messages(profile: ModelProfile, language: str, corrections, max_themes: int = 4):
+    """Ask what a pile of corrections have in common.
+
+    The corrections go in as bare wrote/should-be pairs. The explanations that
+    came with them are left out on purpose: they are the least reliable thing
+    the critic produces, and a wrong one repeated here would be a wrong lesson
+    with a heading on it. The pairs are what actually happened.
+    """
+    lines = "\n".join(
+        f"- wrote: {c['message']}\n  should be: {c['corrected']}" for c in corrections
+    )
+    user = f"Here are the learner's recent mistakes.\n\n{lines}\n\nWhat should they work on?"
+    return compose(profile, _report_system(profile, language, max_themes), user)
+
+
 # --- the translator --------------------------------------------------------
 
 

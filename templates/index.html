@@ -25,10 +25,12 @@
                     <option value="flirty">Flirty</option>
                 </select>
                 <button onclick="toggleConversations()" class="save-btn">Conversations</button>
+                <button onclick="toggleReport()" class="report-btn">Report card</button>
                 <button onclick="startNewConversation()" class="new-conversation-btn">New Conversation</button>
             </div>
             
             <div id="conversation-list" class="conversation-list" hidden></div>
+            <div id="report-card" class="report-card" hidden></div>
 
             <div id="chat-messages" class="chat-messages">
                 <div class="welcome-message">
@@ -171,13 +173,20 @@
             const sendSpinner = document.getElementById('send-spinner');
             
             if (!message) return;
-            
+
+            // On screen first, before anything is asked of the model. What the
+            // learner typed is not in doubt, and waiting to show it made the
+            // whole turn arrive at once after a long silence.
+            addMessage('user', message);
+            input.value = '';
+            const pending = addPendingReply();
+
             // Disable button and show spinner
             sendButton.disabled = true;
             sendText.style.display = 'none';
             sendSpinner.style.display = 'inline-block';
             input.disabled = true;
-            
+
             fetch('/api/chat', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -190,13 +199,13 @@
             })
             .then(r => r.json())
             .then(data => {
-                // Add user message
-                addMessage('user', message);
-                input.value = '';
-                
-                // Add AI response
-                setTimeout(() => addMessage('assistant', data.response), 500);
-                
+                // The spinner bubble becomes the reply, in the place it has
+                // been sitting. There used to be a deliberate half-second pause
+                // before this; the wait is now visible while it happens, and
+                // padding it further only makes the reply late.
+                pending.remove();
+                addMessage('assistant', data.response);
+
                 // Now there is a conversation to come back to on a refresh.
                 rememberConversation(data.conversation_id);
 
@@ -207,6 +216,7 @@
             })
             .catch(error => {
                 console.error('Error:', error);
+                pending.remove();
                 addMessage('assistant', 'Sorry, there was an error. Please try again.');
             })
             .finally(() => {
@@ -246,9 +256,31 @@
         // Every turn is written through as it happens, so this list is simply
         // the history; there is nothing to press to keep a conversation.
 
+        // What the recent mistakes add up to. One model call over the lot, so
+        // it takes a while — hence the spinner rather than a blank panel.
+        function toggleReport() {
+            const panel = document.getElementById('report-card');
+            if (!panel.hidden) { panel.hidden = true; return; }
+
+            document.getElementById('conversation-list').hidden = true;
+            panel.innerHTML = '<div class="practice-loading">' +
+                '<span class="spinner-inline"></span>Looking over your mistakes…</div>';
+            panel.hidden = false;
+
+            fetch('/api/report')
+                .then(r => r.text())
+                .then(html => { panel.innerHTML = html; })
+                .catch(error => {
+                    console.error('Could not build the report:', error);
+                    panel.innerHTML =
+                        '<p class="empty-state">Could not look over those just now.</p>';
+                });
+        }
+
         function toggleConversations() {
             const panel = document.getElementById('conversation-list');
             if (!panel.hidden) { panel.hidden = true; return; }
+            document.getElementById('report-card').hidden = true;
             fetch('/api/conversations')
                 .then(r => r.text())
                 .then(html => { panel.innerHTML = html; panel.hidden = false; })
@@ -291,6 +323,18 @@
                     if (rememberedConversation() === id) startNewConversation();
                 })
                 .catch(error => console.error('Could not delete conversation:', error));
+        }
+
+        // Where the reply will go, spinning until there is one to put there.
+        function addPendingReply() {
+            const messagesDiv = document.getElementById('chat-messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message assistant pending-reply';
+            msgDiv.innerHTML =
+                '<div class="message-content"><span class="spinner-inline"></span></div>';
+            messagesDiv.appendChild(msgDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            return msgDiv;
         }
 
         function addMessage(role, content) {
