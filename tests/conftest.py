@@ -46,3 +46,25 @@ def empty_database():
     session.query(Conversation).delete()
     session.commit()
     session.close()
+
+
+@pytest.fixture(autouse=True)
+def no_talking_to_ollama(monkeypatch, request):
+    """Fail loudly if a test reaches the network.
+
+    The suite stubs the model out, but a stub aimed at the wrong method leaves
+    the real one in place — which is not a failure, just a test that quietly
+    takes five seconds and asks a language model to mark its homework. The
+    Ollama client's own tests replace requests themselves, so they opt out.
+    """
+    if request.node.fspath.basename == "test_ollama_client.py":
+        return
+
+    def refuse(*args, **kwargs):
+        raise AssertionError(
+            "a test tried to reach the network — something is not stubbed. "
+            f"args={args[:1]}"
+        )
+
+    monkeypatch.setattr("requests.post", refuse)
+    monkeypatch.setattr("requests.get", refuse)

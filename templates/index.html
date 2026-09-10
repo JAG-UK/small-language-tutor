@@ -51,7 +51,9 @@
         <!-- Corrections Panel -->
         <div class="corrections-panel">
             <h3>Learning Points and Hints</h3>
-            <div id="review-pending" class="review-pending" hidden>Looking over what you wrote…</div>
+            <div id="review-pending" class="review-pending" hidden>
+                <span class="spinner-inline"></span>Looking over what you wrote…
+            </div>
             <div id="corrections-list">
                 <p class="empty-state">No learning points yet. Keep practicing!</p>
             </div>
@@ -306,7 +308,14 @@
             const sentence = textarea.value.trim();
             
             if (!sentence) return;
-            
+
+            // Checking is a model call the learner is waiting on, and the
+            // critic is deliberately the careful model rather than the quick
+            // one, so say something is happening.
+            const resultDiv = document.getElementById('practice-result');
+            resultDiv.innerHTML =
+                '<div class="practice-loading"><span class="spinner-inline"></span>Checking…</div>';
+
             fetch('/api/practice', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -314,8 +323,10 @@
             })
             .then(r => r.json())
             .then(data => {
-                const resultDiv = document.getElementById('practice-result');
-                if (data.has_errors) {
+                if (data.error) {
+                    resultDiv.innerHTML =
+                        `<div class="practice-error">${escapeHtml(data.error)}</div>`;
+                } else if (data.has_errors) {
                     resultDiv.innerHTML = `
                         <div class="practice-error">
                             <strong>Correction:</strong> ${escapeHtml(data.corrected)}<br>
@@ -329,6 +340,11 @@
                         </div>
                     `;
                 }
+            })
+            .catch(error => {
+                console.error('Could not check that sentence:', error);
+                resultDiv.innerHTML =
+                    '<div class="practice-error">Could not check that. Try again.</div>';
             });
         }
         
@@ -360,7 +376,8 @@
             if (!phrase) return;
             
             const resultDiv = document.getElementById('translation-result');
-            resultDiv.innerHTML = '<div class="practice-loading">Translating...</div>';
+            resultDiv.innerHTML =
+                '<div class="practice-loading"><span class="spinner-inline"></span>Translating…</div>';
             
             fetch('/api/translate', {
                 method: 'POST',

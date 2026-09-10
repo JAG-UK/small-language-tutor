@@ -1,0 +1,4 @@
+# Everything above, plus what is needed to run the tests. They stub the model
+# out, so none of this needs Ollama.
+-r requirements.txt
+pytest>=8,<9

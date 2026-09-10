@@ -1,4 +1,12 @@
-flask==3.0.0
-requests==2.31.0
-sqlalchemy==2.0.23
-
+# Ranges rather than exact pins. The exact pin that was here — SQLAlchemy
+# 2.0.23, from November 2023 — could not be imported at all on Python 3.13 or
+# 3.14, which is what a current machine has:
+#
+#   AssertionError: Class SQLCoreOperations directly inherits TypingOnly
+#
+# A fresh install on a new Python should get a version that works there, so the
+# floors are the oldest verified against 3.12 through 3.14 and the ceilings stop
+# a silent major-version jump.
+Flask>=3.1,<4
+SQLAlchemy>=2.0.52,<3
+requests>=2.32,<3

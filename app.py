@@ -30,22 +30,68 @@ MODEL = os.environ.get("SLT_MODEL", "phi4-mini:3.8b")
 # be a slower and more careful model than the one making conversation — two jobs
 # that want different things from a model.
 #
-# Worth setting: measured over 11 sentences x 3 trials, phi4-mini:3.8b caught
-# 11 of 21 errors where translategemma:12b caught 20 and left every correct
-# sentence alone. In an app whose point is catching mistakes, the default is the
-# weakest link. It stays the default only because two models means two lots of
-# weights resident, which on a small laptop is the thing most likely to make
-# this worse rather than better. See "Choosing models" in the README, and
+# It is a different model by default because measurement said so: over 11
+# sentences x 3 trials, phi4-mini:3.8b caught 11 of 21 errors, while
+# translategemma:12b caught 20 and left every correct sentence alone. An app
+# whose point is catching mistakes should not ship missing half of them to save
+# a pull. Set SLT_CRITIC_MODEL=$SLT_MODEL to go back to one model on a machine
+# that cannot hold two. See "Choosing models" in the README, and
 # tools/compare_models.py to check any of it on your own machine.
-CRITIC_MODEL = os.environ.get("SLT_CRITIC_MODEL", MODEL)
+DEFAULT_CRITIC = "translategemma:12b"
+CRITIC_MODEL = os.environ.get("SLT_CRITIC_MODEL", DEFAULT_CRITIC)
 
 ollama = OllamaClient(model=MODEL)
 PROFILE = profile_for(MODEL)
 
 # A deliberately generous timeout when the critic is its own model: whatever it
 # is, it was chosen for care rather than speed, and nobody is waiting on it.
-critic = ollama if CRITIC_MODEL == MODEL else OllamaClient(model=CRITIC_MODEL, timeout=300)
-grammar_checker = GrammarChecker(critic)
+critic = None
+grammar_checker = None
+
+
+def use_critic(model):
+    """Point the critic at a model, and say which one it is.
+
+    Separate from import so that importing the app — which the tests do —
+    asks Ollama nothing.
+    """
+    global CRITIC_MODEL, critic, grammar_checker
+    CRITIC_MODEL = model
+    critic = ollama if model == MODEL else OllamaClient(model=model, timeout=300)
+    grammar_checker = GrammarChecker(critic)
+    return grammar_checker
+
+
+use_critic(CRITIC_MODEL)
+
+
+def check_models(available=None):
+    """Warn about models that are configured but not pulled.
+
+    A missing model is not an error the app can answer: the conversation would
+    come back as an apology and the critic would silently stop marking. Better
+    to say which one and what to type. If the critic in particular is missing,
+    fall back to the conversation model — half a critic is worth more than none,
+    and the warning says exactly what was given up.
+    """
+    if available is None:
+        available = ollama.available_models()
+    if not available:
+        # Ollama not running, or not answering yet. Not this function's problem
+        # to diagnose; the first real request will say so plainly.
+        return []
+
+    notes = []
+    if MODEL not in available:
+        notes.append(f"SLT_MODEL {MODEL!r} is not pulled. `ollama pull {MODEL}`.")
+    if CRITIC_MODEL not in available:
+        notes.append(
+            f"SLT_CRITIC_MODEL {CRITIC_MODEL!r} is not pulled, so corrections fall back to "
+            f"{MODEL!r} — which catches about half as many mistakes. "
+            f"`ollama pull {CRITIC_MODEL}` to fix that."
+        )
+        use_critic(MODEL)
+    return notes
 
 # Current conversation state (in-memory, per session)
 conversations = {}  # Simple dict for now, keyed by session_id
@@ -92,7 +138,7 @@ def chat():
     # system turn at all, is the model family's call.
     messages_for_llm = conversation_messages(PROFILE, language, tone, conv["messages"])
 
-    ai_response = ollama.chat(messages_for_llm, language)
+    ai_response = ollama.chat(messages_for_llm)
     ai_msg = {"role": "assistant", "content": ai_response, "timestamp": datetime.now().isoformat()}
     conv['messages'].append(ai_msg)
     store.save(conv)  # every turn, so nothing is lost to a restart
@@ -170,8 +216,11 @@ def practice():
     SLT_CRITIC_MODEL will be felt here.
     """
     data = request.json
-    sentence = data.get('sentence', '')
+    sentence = (data.get('sentence') or '').strip()
     language = data.get('language', 'es')
+
+    if not sentence:
+        return jsonify({'error': 'No sentence provided'}), 400
 
     correction = grammar_checker.check_message(sentence, [], language)
     return jsonify(correction)
@@ -180,21 +229,24 @@ def practice():
 def translate():
     """Translate between English and target language (bidirectional)"""
     data = request.json
-    phrase = data.get('phrase', '')
+    phrase = (data.get('phrase') or '').strip()
     target_language = data.get('language', 'es')
     direction = data.get('direction', 'en-to-target')
-    
+
     if not phrase:
         return jsonify({'error': 'No phrase provided'}), 400
-    
-    messages = translation_messages(PROFILE, phrase, target_language, direction)
-    response_language = target_language if direction == "en-to-target" else "en"
 
+    messages = translation_messages(PROFILE, phrase, target_language, direction)
+
+    # ask() rather than chat(): chat() hands failures back as text, which the
+    # conversation wants and this does not — passed through, the learner is
+    # shown "Error: the model took longer than 120s" as their translation.
     try:
-        translation = ollama.chat(messages, response_language)
-        return jsonify({'translation': translation.strip()})
-    except Exception as e:
-        return jsonify({'error': f'Translation failed: {str(e)}'}), 500
+        translation = ollama.ask(messages)
+    except Exception as exc:
+        return jsonify({'error': f'Translation failed: {exc}'}), 502
+
+    return jsonify({'translation': translation.strip()})
 
 #: The bullet a model puts at the start of a line: "- ", "*   ", "• ".
 _LEADING_BULLET = re.compile(r"^[-*\u2022]+\s+")
@@ -393,9 +445,14 @@ def main():
             print(f"refusing to start: {refusal}", file=sys.stderr)
         raise SystemExit(2)
 
+    for note in check_models():
+        print(f"warning: {note}", file=sys.stderr)
+
     where = "this machine only" if hosting.is_loopback(host) else "the network"
     locked = "password required" if hosting.password() else "no password"
+    models = MODEL if CRITIC_MODEL == MODEL else f"{MODEL} + {CRITIC_MODEL}"
     print(f"Language Tutor on http://{host}:{port} — {where}, {locked}", file=sys.stderr)
+    print(f"  talking with {models}", file=sys.stderr)
     app.run(debug=debug, host=host, port=port)
 
 

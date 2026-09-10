@@ -33,11 +33,20 @@ class OllamaClient:
         response.raise_for_status()
         return response.json()["message"]["content"]
 
-    def chat(self, messages, language="en"):
-        """Free-text reply.
+    def ask(self, messages):
+        """Free-text reply, raising if there is no reply to be had.
 
-        Errors come back as text because this feeds straight into the
-        conversation, where an exception would lose the user's message.
+        For callers that can do something better with a failure than show it to
+        the learner as an answer. Translating is one: "Error: the model took
+        longer than 120s" is not a translation of anything.
+        """
+        return self._post(messages)
+
+    def chat(self, messages):
+        """Free-text reply, with errors as text rather than exceptions.
+
+        This one feeds straight into the conversation, where raising would lose
+        the learner's message along with the reply to it.
         """
         try:
             return self._post(messages)
