@@ -90,6 +90,33 @@ def conversation_messages(profile: ModelProfile, language: str, tone: str, histo
     return with_history(profile, _conversation_system(profile, language, tone), history)
 
 
+# --- opening the conversation ----------------------------------------------
+
+
+def opening_messages(profile: ModelProfile, language: str, tone: str, scenario: dict):
+    """Ask the partner to speak first, in a situation.
+
+    A role rather than a blank invitation. Told simply to start talking, a small
+    model produces "¡Hola! ¿Cómo estás?" and produces it again tomorrow; given
+    somewhere to be and someone to be, it opens the way that person would.
+    """
+    lang = language_name(language)
+    how = tone_description(tone, "behave")
+
+    system = (
+        f"You are a native {lang} speaker talking to someone learning {lang}.\n"
+        f"The situation: {scenario['setting']}\n"
+        f"Be {how}\n"
+        f"You are that person; the learner is the other one. Say the first thing "
+        f"you would say, in character, in one or two sentences — then let them "
+        f"answer.\n"
+        f"Write only in {lang}, never in English. Do not explain the situation, "
+        f"do not describe yourself, and do not greet them as a language tutor "
+        f"would — just begin."
+    )
+    return compose(profile, system, f"Begin the conversation in {lang}.")
+
+
 # --- the corrector ---------------------------------------------------------
 
 

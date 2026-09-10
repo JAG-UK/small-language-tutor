@@ -590,3 +590,70 @@ class TestTheReportCard:
                                 "explanation": "", "timestamp": "t"}]
         store.save(conv)
         assert store.recent_corrections() == []
+
+
+class TestLettingTheTutorGoFirst:
+    """Coming up with a subject is work, and a learner who invents one every
+    time practises whatever they can already say."""
+
+    def start(self, client, **body):
+        return client.post("/api/opening",
+                           json={"session_id": "s1", "language": "es",
+                                 "tone": "friendly", **body}).get_json()
+
+    def test_the_tutor_speaks_first(self, client):
+        assert self.start(client)["opening"] == "¡Claro!"
+
+    def test_it_says_where_the_conversation_is_set(self, client):
+        import scenarios
+        assert self.start(client)["scenario"] in [s["label"] for s in scenarios.DECK]
+
+    def test_the_opening_is_the_first_thing_in_the_conversation(self, client):
+        self.start(client)
+        messages = app_module.conversations["s1"]["messages"]
+        assert [m["role"] for m in messages] == ["assistant"]
+
+    def test_it_is_saved_like_any_other_turn(self, client):
+        import store
+        conversation_id = self.start(client)["conversation_id"]
+        assert store.load(conversation_id)["messages"][0]["content"] == "¡Claro!"
+
+    def test_the_learner_can_reply_to_it(self, client):
+        self.start(client)
+        reply = send(client, "Muy bien, gracias")
+        assert reply["turn"] == 1  # after the opening
+        sent = [m["content"] for m in client.calls["chat"][-1]]
+        assert any("Muy bien" in content for content in sent)
+
+    def test_the_title_comes_from_the_learner_not_the_opening(self, client):
+        import store
+        self.start(client)
+        send(client, "Muy bien, gracias")
+        assert store.recent()[0]["title"] == "Muy bien, gracias"
+
+    def test_the_situation_reaches_the_model(self, client):
+        self.start(client)
+        asked = " ".join(m["content"] for m in client.calls["chat"][0])
+        assert "The situation:" in asked
+        assert "Spanish" in asked
+
+    def test_it_starts_a_fresh_conversation_rather_than_joining_one(self, client):
+        send(client, "hola")
+        first = app_module.conversations["s1"]["id"]
+        assert self.start(client)["conversation_id"] != first
+
+    def test_the_situation_is_chosen_from_what_keeps_going_wrong(self, client,
+                                                                 monkeypatch):
+        import scenarios
+        seen = {}
+
+        def watched(corrections, **kwargs):
+            seen["corrections"] = list(corrections)
+            return scenarios.DECK[0] | {"chosen_for": None}
+
+        monkeypatch.setattr(app_module.scenarios, "choose", watched)
+        turn = send(client, "hola")["turn"]
+        client.post("/api/review", json={"session_id": "s1", "turn": turn})
+        self.start(client)
+
+        assert [c["corrected"] for c in seen["corrections"]] == ["HOLA"]

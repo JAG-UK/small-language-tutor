@@ -35,6 +35,9 @@
             <div id="chat-messages" class="chat-messages">
                 <div class="welcome-message">
                     <p>Start a conversation in your target language! I'll help you practice.</p>
+                    <button onclick="startMeOff()" class="start-me-off">
+                        …or let me start
+                    </button>
                 </div>
             </div>
             
@@ -102,6 +105,12 @@
         // where losing your place is a nuisance rather than losing the work.
         const RESUME_KEY = 'slt.conversation';
 
+        const WELCOME =
+            '<div class="welcome-message">' +
+            '<p>Start a conversation in your target language! I\'ll help you practice.</p>' +
+            '<button onclick="startMeOff()" class="start-me-off">…or let me start</button>' +
+            '</div>';
+
         function rememberConversation(id) {
             try {
                 if (id === null || id === undefined) localStorage.removeItem(RESUME_KEY);
@@ -123,7 +132,7 @@
             sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             rememberConversation(null);
             // Clear the chat messages
-            document.getElementById('chat-messages').innerHTML = '<div class="welcome-message"><p>Start a conversation in your target language! I\'ll help you practice.</p></div>';
+            document.getElementById('chat-messages').innerHTML = WELCOME;
             // Clear corrections/hints
             document.getElementById('corrections-list').innerHTML = '<p class="empty-state">No learning points yet. Keep practicing!</p>';
         }
@@ -177,6 +186,7 @@
             // On screen first, before anything is asked of the model. What the
             // learner typed is not in doubt, and waiting to show it made the
             // whole turn arrive at once after a long silence.
+            clearWelcome();
             addMessage('user', message);
             input.value = '';
             const pending = addPendingReply();
@@ -299,7 +309,7 @@
                 document.getElementById('language-select').value = data.language;
                 document.getElementById('tone-select').value = data.tone;
                 const messages = document.getElementById('chat-messages');
-                messages.innerHTML = '';
+                messages.innerHTML = '';  // the welcome goes with it
                 data.messages.forEach(m => addMessage(m.role, m.content));
                 document.getElementById('corrections-list').innerHTML = data.panel;
                 document.getElementById('conversation-list').hidden = true;
@@ -323,6 +333,52 @@
                     if (rememberedConversation() === id) startNewConversation();
                 })
                 .catch(error => console.error('Could not delete conversation:', error));
+        }
+
+        // The invitation to start has done its job once anything is said.
+        function clearWelcome() {
+            const welcome = document.querySelector('#chat-messages .welcome-message');
+            if (welcome) welcome.remove();
+        }
+
+        // Let the tutor pick something to talk about and go first, so that
+        // having nothing to say is not a reason to not practise.
+        function startMeOff() {
+            const language = document.getElementById('language-select').value;
+            const tone = document.getElementById('tone-select').value;
+
+            clearWelcome();
+            const pending = addPendingReply();
+
+            fetch('/api/opening', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({session_id: sessionId, language, tone})
+            })
+            .then(r => r.ok ? r.json() : Promise.reject(r.status))
+            .then(data => {
+                pending.remove();
+                addScenario(data.scenario);
+                addMessage('assistant', data.opening);
+                rememberConversation(data.conversation_id);
+                document.getElementById('chat-input').focus();
+            })
+            .catch(error => {
+                console.error('Could not start a conversation:', error);
+                pending.remove();
+                addMessage('assistant', 'Could not think of anything just now. Try again.');
+            });
+        }
+
+        // A quiet note of where this is set, so the opening line has a context
+        // rather than arriving out of nowhere.
+        function addScenario(label) {
+            if (!label) return;
+            const messagesDiv = document.getElementById('chat-messages');
+            const note = document.createElement('div');
+            note.className = 'scenario-note';
+            note.textContent = label;
+            messagesDiv.appendChild(note);
         }
 
         // Where the reply will go, spinning until there is one to put there.
