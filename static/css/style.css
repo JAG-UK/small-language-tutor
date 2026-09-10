@@ -4,6 +4,14 @@
     box-sizing: border-box;
 }
 
+/* The `hidden` attribute hides things by way of the browser's own
+   `display: none`, which any rule here setting `display` quietly outranks — as
+   one setting `display: flex` on a spinner did, leaving "Looking over what you
+   wrote…" on screen permanently. This makes the attribute mean what it says. */
+[hidden] {
+    display: none !important;
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
     background: #f5f5f5;
@@ -178,6 +186,31 @@ body {
     to { transform: rotate(360deg); }
 }
 
+/* The button's spinner is white because it sits on a blue button. These sit on
+   pale panels and next to text, so they take their size and colour from it. */
+.spinner-inline {
+    display: inline-block;
+    width: 0.85em;
+    height: 0.85em;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    opacity: 0.55;
+    animation: spin 0.8s linear infinite;
+    flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Still say that something is happening, without the rotation. */
+    .spinner, .spinner-inline {
+        animation: waiting 1.6s ease-in-out infinite;
+    }
+}
+
+@keyframes waiting {
+    50% { opacity: 0.15; }
+}
+
 .corrections-panel, .practice-panel {
     padding: 1rem;
 }
@@ -345,8 +378,11 @@ body {
     color: #999;
     font-size: 0.85rem;
     font-style: italic;
-    text-align: center;
     padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
 }
 
 .practice-panel {
@@ -423,7 +459,11 @@ body {
 .practice-loading {
     color: #666;
     font-style: italic;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
 }
 
 .translation-result {

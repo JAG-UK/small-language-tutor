@@ -51,7 +51,9 @@
         <!-- Corrections Panel -->
         <div class="corrections-panel">
             <h3>Learning Points and Hints</h3>
-            <div id="review-pending" class="review-pending" hidden>Looking over what you wrote…</div>
+            <div id="review-pending" class="review-pending" hidden>
+                <span class="spinner-inline"></span>Looking over what you wrote…
+            </div>
             <div id="corrections-list">
                 <p class="empty-state">No learning points yet. Keep practicing!</p>
             </div>
@@ -311,7 +313,8 @@
             // critic is deliberately the careful model rather than the quick
             // one, so say something is happening.
             const resultDiv = document.getElementById('practice-result');
-            resultDiv.innerHTML = '<div class="practice-loading">Checking…</div>';
+            resultDiv.innerHTML =
+                '<div class="practice-loading"><span class="spinner-inline"></span>Checking…</div>';
 
             fetch('/api/practice', {
                 method: 'POST',
@@ -373,7 +376,8 @@
             if (!phrase) return;
             
             const resultDiv = document.getElementById('translation-result');
-            resultDiv.innerHTML = '<div class="practice-loading">Translating...</div>';
+            resultDiv.innerHTML =
+                '<div class="practice-loading"><span class="spinner-inline"></span>Translating…</div>';
             
             fetch('/api/translate', {
                 method: 'POST',
