@@ -9,11 +9,13 @@ So the defaults are closed. It binds to loopback, where nothing outside the
 machine can reach it, and the debugger is off unless asked for and refuses to
 come on anywhere it could be reached.
 
-To use it from elsewhere, forward the port over SSH rather than opening one.
-That is not belt-and-braces: HTTP Basic sends the password in a header that is
-merely encoded, not encrypted, so on a bare HTTP port it is readable by anything
-on the path. The tunnel supplies the encryption the password needs. The password
-is then what stops other people *on the far machine* using the tunnel's exit.
+To use it from elsewhere, put an encrypted layer under it rather than opening a
+port: SSH forwarding from a laptop, WireGuard from a phone. That is not
+belt-and-braces — HTTP Basic sends the password in a header that is merely
+encoded, not encrypted, so on a bare HTTP port it is readable by anything on the
+path. The tunnel or the VPN supplies the encryption the password needs. The
+password is then what stops everything *else* that can reach the far side —
+other accounts on that machine, other devices on that VLAN — using your GPU.
 
     SLT_HOST      where to bind. Defaults to 127.0.0.1.
     SLT_PORT      defaults to 5001.
@@ -72,8 +74,8 @@ def startup_problems(host, secret, debug):
             refusals.append(
                 f"SLT_HOST={host!r} serves the app to the network, but SLT_PASSWORD is not set, "
                 f"so anyone who can reach the port can use your GPU and read your conversations. "
-                f"Set a password, or leave SLT_HOST unset and reach it over an SSH tunnel "
-                f"(see the README)."
+                f"Set a password, or leave SLT_HOST unset and reach it over an SSH tunnel or a "
+                f"VPN (see the README)."
             )
         if debug:
             refusals.append(
@@ -83,8 +85,9 @@ def startup_problems(host, secret, debug):
         if secret:
             warnings.append(
                 "HTTP Basic sends the password encoded rather than encrypted, so on a plain "
-                "HTTP port it can be read in transit. Prefer an SSH tunnel, or put a reverse "
-                "proxy with TLS in front."
+                "HTTP port it can be read in transit. Fine inside a VPN or an SSH tunnel, "
+                "which encrypt it for you; on the open internet, put a reverse proxy with "
+                "TLS in front."
             )
     # No warning for loopback without a password: that is the ordinary way to
     # run this on your own laptop, and a warning printed on every normal start

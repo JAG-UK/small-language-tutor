@@ -267,8 +267,12 @@ The app binds to `127.0.0.1`. Nothing outside the machine it runs on can reach
 it, which is the right default for something that answers with a GPU and keeps
 a database of your conversations.
 
-To use it from your laptop while it runs on the box with the card in it, forward
-the port over SSH rather than opening one:
+There are two good ways to reach it anyway, and which one depends on what you
+are holding.
+
+### From a laptop, over SSH
+
+Forward the port rather than opening one:
 
 ```bash
 tools/tunnel.sh you@gpu-box
@@ -277,6 +281,35 @@ tools/tunnel.sh you@gpu-box
 Then open `http://localhost:5001`. Leave it running; Ctrl-C closes it. The far
 end never puts a port on the network — SSH carries the traffic, and supplies the
 encryption that HTTP Basic does not.
+
+This is the right tool between two machines on the same network, or over a link
+you already have. It is the wrong one for a phone: iOS and Android both suspend
+the SSH app the moment you switch to the browser, which is exactly when the
+forward needs to be alive, and SSH is TCP, so the session dies every time the
+handset moves between wifi and cell.
+
+### From a phone, over WireGuard
+
+Put the phone on the network the box is on, and reach it by its LAN address like
+anything else there. WireGuard is the right shape for this: it runs at the OS
+level so the browser benefits without a second app in the foreground, and it is
+UDP, so roaming between wifi and cell reconnects instead of breaking.
+
+The app then binds to the LAN address rather than loopback, which means a
+password — and it will not start without one:
+
+```bash
+export SLT_HOST=192.168.1.42        # the box's address on your VLAN
+export SLT_PASSWORD='something long'
+python app.py
+```
+
+One UDP port for WireGuard is the only thing your firewall needs to allow, and
+the tutor's own port stays off the public internet entirely. The startup warning
+about HTTP Basic being readable in transit is about a bare HTTP port; inside
+WireGuard the traffic is already encrypted on the wire, so the password is not
+travelling in the clear. It is still worth setting, because it is what stops
+anything *else* on the VLAN from using your GPU.
 
 ### The password
 
@@ -316,9 +349,10 @@ It is also what makes the server pick up edits. With it off, Flask caches
 templates for the life of the process, so a change to `index.html` does nothing
 until a restart — set it while working on the app, and leave it off otherwise.
 
-If you do want this on the open internet rather than through a tunnel, put a
-reverse proxy with TLS in front of it and point that at the loopback port. Basic
-auth over plain HTTP sends the password merely encoded.
+If you do want this on the open internet — rather than through a tunnel or a
+VPN — put a reverse proxy with TLS in front of it and point that at the loopback
+port. Basic auth over plain HTTP sends the password merely encoded, and the open
+internet is the one place where that matters most.
 
 ### One user
 
