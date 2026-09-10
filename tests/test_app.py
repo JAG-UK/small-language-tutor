@@ -368,3 +368,44 @@ class TestTheConversationList:
 
     def test_deleting_what_is_not_there(self, client):
         assert client.delete("/api/conversations/9999").status_code == 404
+
+
+class TestWhichModelsItUses:
+    """The critic is a different model by default. phi4-mini:3.8b caught 11 of
+    21 errors where translategemma:12b caught 20, and an app whose point is
+    catching mistakes should not ship missing half of them to save a pull."""
+
+    def teardown_method(self):
+        app_module.use_critic(app_module.DEFAULT_CRITIC)
+
+    def test_the_critic_is_not_the_conversation_model_by_default(self):
+        assert app_module.DEFAULT_CRITIC != app_module.MODEL
+
+    def test_nothing_is_said_when_both_are_pulled(self):
+        assert app_module.check_models([app_module.MODEL, app_module.DEFAULT_CRITIC]) == []
+
+    def test_a_missing_conversation_model_says_what_to_type(self):
+        notes = app_module.check_models([app_module.DEFAULT_CRITIC])
+        assert any(f"ollama pull {app_module.MODEL}" in note for note in notes)
+
+    def test_a_missing_critic_falls_back_rather_than_marking_nothing(self):
+        notes = app_module.check_models([app_module.MODEL])
+
+        assert any("fall back" in note for note in notes)
+        assert app_module.CRITIC_MODEL == app_module.MODEL
+        assert app_module.grammar_checker.ollama is app_module.ollama
+
+    def test_the_fallback_is_a_working_checker_not_a_stub(self):
+        app_module.check_models([app_module.MODEL])
+        assert hasattr(app_module.grammar_checker, "check_message")
+
+    def test_an_ollama_that_answers_nothing_is_left_alone(self):
+        # Not running yet, or still starting. The first real request will say so
+        # far better than a guess made here.
+        assert app_module.check_models([]) == []
+        assert app_module.CRITIC_MODEL == app_module.DEFAULT_CRITIC
+
+    def test_choosing_the_conversation_model_as_critic_shares_one_client(self):
+        # One model in memory, for a machine that cannot hold two.
+        app_module.use_critic(app_module.MODEL)
+        assert app_module.critic is app_module.ollama

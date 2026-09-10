@@ -1,0 +1,38 @@
+name: tests
+
+# The suite stubs the model out, so none of this needs Ollama or a GPU.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every Python someone might reasonably have. The dependency pins used
+        # to fail on the newer ones at import, which is the sort of thing only a
+        # matrix notices — it worked perfectly on the machine it was written on.
+        python: ["3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install
+        run: pip install -r requirements-dev.txt
+
+      - name: Show what resolved
+        # The versions are ranges, so which ones actually got installed is the
+        # useful thing to see when a run fails.
+        run: pip list
+
+      - name: Test
+        run: python -m pytest tests/ -q

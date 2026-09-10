@@ -40,15 +40,24 @@ of you.
 The default. Small models, nothing listening but loopback, no password needed.
 
 ```bash
-export SLT_MODEL=phi4-mini:3.8b              # holds the conversation
-export SLT_CRITIC_MODEL=translategemma:12b   # marks the homework
 python app.py
 ```
 
 Open `http://localhost:5001`. Works on a plane; nothing else on the network can
-reach it. Both variables have defaults, and `SLT_CRITIC_MODEL` falls back to
-`SLT_MODEL`, so plain `python app.py` also works — see
-[Choosing models](#choosing-models) for what you give up.
+reach it.
+
+That runs `phi4-mini:3.8b` for the conversation and `translategemma:12b` for the
+corrections, which is the pairing the measurements favour — see
+[Choosing models](#choosing-models). On a machine that cannot hold both, one
+will do:
+
+```bash
+export SLT_CRITIC_MODEL=phi4-mini:3.8b   # the same model for both jobs
+```
+
+It catches about half as many mistakes. If the critic has not been pulled the
+app says so at startup and falls back to this on its own, rather than quietly
+marking nothing.
 
 ### On the box with the GPU in it
 
@@ -91,7 +100,7 @@ machine](#reaching-it-from-another-machine).
 | variable | default | what it does |
 |---|---|---|
 | `SLT_MODEL` | `phi4-mini:3.8b` | the conversation partner |
-| `SLT_CRITIC_MODEL` | whatever `SLT_MODEL` is | marks each message, off the critical path |
+| `SLT_CRITIC_MODEL` | `translategemma:12b` | marks each message, off the critical path. Set it to `$SLT_MODEL` to run one model |
 | `SLT_PASSWORD` | unset | required before anything is served; mandatory off loopback |
 | `SLT_HOST` | `127.0.0.1` | where to bind. Anything else needs a password |
 | `SLT_PORT` | `5001` | 5000 collides with macOS AirPlay Receiver |
@@ -115,25 +124,25 @@ That is what `SLT_CRITIC_MODEL` is for.
 
 ### Recommendations
 
-**One model, if you can spare ~8GB: `translategemma:12b`.** It is the only
-model measured here that is good at all three jobs — 1.9s replies, and much the
-best critic of the lot. Despite the name it holds a conversation perfectly well.
-
-```bash
-export SLT_MODEL=translategemma:12b
-```
-
-**Two models, for the snappiest conversation (~11GB resident):** let a small
-fast model talk and the careful one mark:
+**The default (~11GB resident):** a small fast model talks, a careful one marks.
 
 ```bash
 export SLT_MODEL=phi4-mini:3.8b
 export SLT_CRITIC_MODEL=translategemma:12b
 ```
 
-Replies come back in 0.3s and the corrections catch up a few seconds later.
-The one cost is that sending a message while a critique is still running takes
-about 2.3s instead of 0.3s.
+Replies come back in 0.3s and the corrections catch up a few seconds later. The
+one cost is that sending a message while a critique is still running takes about
+2.3s instead of 0.3s. This is what you get without setting anything.
+
+**One model, if you can only spare ~8GB: `translategemma:12b`.** The only model
+measured here that is good at all three jobs — 1.9s replies, and much the best
+critic of the lot. Despite the name it holds a conversation perfectly well.
+
+```bash
+export SLT_MODEL=translategemma:12b
+export SLT_CRITIC_MODEL=translategemma:12b
+```
 
 **Tight on memory: `translategemma:4b` (3.3GB)** as the single model. It catches
 almost everything, but rewrites about half the sentences that were already fine.
@@ -171,8 +180,9 @@ Two results worth knowing about, because they are not what the names suggest:
   0 of 31. Fabricated grammar advice is the worst thing this app can produce,
   so `grammar_checker.py` drops an explanation the sentences disprove — but a
   guard is not a substitute for a model that does not need one. phi4-mini is an
-  excellent conversation partner and is still the default `SLT_MODEL`; this is
-  the single best reason to set `SLT_CRITIC_MODEL`.
+  excellent conversation partner and is still the default `SLT_MODEL`, but it is
+  no longer the default critic — an app whose point is catching mistakes should
+  not ship missing half of them to save a pull.
 * **`gemma2:27b` catches everything and cannot keep quiet.** It was the only
   model to score 21/21, but it rewrote `Sí, en Madrid` — a perfectly good
   answer to "where do you live?" — every single time, and it is three times
@@ -381,6 +391,7 @@ small-language-tutor/
 │       └── style.css      # Main stylesheet
 ├── templates/
 │   └── index.html         # Main HTMX interface
+├── requirements-dev.txt   # the above, plus pytest
 ├── tools/
 │   ├── compare_models.py  # Measure a model at each of the three jobs
 │   └── tunnel.sh          # Reach a remote instance over SSH
@@ -391,8 +402,12 @@ small-language-tutor/
 ## Running the tests
 
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest tests/
 ```
 
 The suite stands in for the models rather than calling them, so it needs no
-Ollama and runs in about a second.
+Ollama and runs in about a second. GitHub Actions runs it on every push and pull
+request against Python 3.12, 3.13 and 3.14 — the dependency pins that were here
+before could not be imported at all on the newer two, which is exactly the sort
+of thing that works perfectly on the machine it was written on.
