@@ -191,6 +191,15 @@ body {
     to { transform: rotate(360deg); }
 }
 
+/* The bubble the reply will appear in, holding a spinner until it does. Sized
+   so that swapping the spinner for the text does not make the row jump. */
+.pending-reply .message-content {
+    display: flex;
+    align-items: center;
+    min-height: 1.4em;
+    color: #888;
+}
+
 /* The button's spinner is white because it sits on a blue button. These sit on
    pale panels and next to text, so they take their size and colour from it. */
 .spinner-inline {

@@ -173,13 +173,20 @@
             const sendSpinner = document.getElementById('send-spinner');
             
             if (!message) return;
-            
+
+            // On screen first, before anything is asked of the model. What the
+            // learner typed is not in doubt, and waiting to show it made the
+            // whole turn arrive at once after a long silence.
+            addMessage('user', message);
+            input.value = '';
+            const pending = addPendingReply();
+
             // Disable button and show spinner
             sendButton.disabled = true;
             sendText.style.display = 'none';
             sendSpinner.style.display = 'inline-block';
             input.disabled = true;
-            
+
             fetch('/api/chat', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -192,13 +199,13 @@
             })
             .then(r => r.json())
             .then(data => {
-                // Add user message
-                addMessage('user', message);
-                input.value = '';
-                
-                // Add AI response
-                setTimeout(() => addMessage('assistant', data.response), 500);
-                
+                // The spinner bubble becomes the reply, in the place it has
+                // been sitting. There used to be a deliberate half-second pause
+                // before this; the wait is now visible while it happens, and
+                // padding it further only makes the reply late.
+                pending.remove();
+                addMessage('assistant', data.response);
+
                 // Now there is a conversation to come back to on a refresh.
                 rememberConversation(data.conversation_id);
 
@@ -209,6 +216,7 @@
             })
             .catch(error => {
                 console.error('Error:', error);
+                pending.remove();
                 addMessage('assistant', 'Sorry, there was an error. Please try again.');
             })
             .finally(() => {
@@ -315,6 +323,18 @@
                     if (rememberedConversation() === id) startNewConversation();
                 })
                 .catch(error => console.error('Could not delete conversation:', error));
+        }
+
+        // Where the reply will go, spinning until there is one to put there.
+        function addPendingReply() {
+            const messagesDiv = document.getElementById('chat-messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message assistant pending-reply';
+            msgDiv.innerHTML =
+                '<div class="message-content"><span class="spinner-inline"></span></div>';
+            messagesDiv.appendChild(msgDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            return msgDiv;
         }
 
         function addMessage(role, content) {
