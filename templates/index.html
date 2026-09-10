@@ -306,7 +306,13 @@
             const sentence = textarea.value.trim();
             
             if (!sentence) return;
-            
+
+            // Checking is a model call the learner is waiting on, and the
+            // critic is deliberately the careful model rather than the quick
+            // one, so say something is happening.
+            const resultDiv = document.getElementById('practice-result');
+            resultDiv.innerHTML = '<div class="practice-loading">Checking…</div>';
+
             fetch('/api/practice', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -314,8 +320,10 @@
             })
             .then(r => r.json())
             .then(data => {
-                const resultDiv = document.getElementById('practice-result');
-                if (data.has_errors) {
+                if (data.error) {
+                    resultDiv.innerHTML =
+                        `<div class="practice-error">${escapeHtml(data.error)}</div>`;
+                } else if (data.has_errors) {
                     resultDiv.innerHTML = `
                         <div class="practice-error">
                             <strong>Correction:</strong> ${escapeHtml(data.corrected)}<br>
@@ -329,6 +337,11 @@
                         </div>
                     `;
                 }
+            })
+            .catch(error => {
+                console.error('Could not check that sentence:', error);
+                resultDiv.innerHTML =
+                    '<div class="practice-error">Could not check that. Try again.</div>';
             });
         }
         

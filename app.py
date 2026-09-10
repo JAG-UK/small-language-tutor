@@ -138,7 +138,7 @@ def chat():
     # system turn at all, is the model family's call.
     messages_for_llm = conversation_messages(PROFILE, language, tone, conv["messages"])
 
-    ai_response = ollama.chat(messages_for_llm, language)
+    ai_response = ollama.chat(messages_for_llm)
     ai_msg = {"role": "assistant", "content": ai_response, "timestamp": datetime.now().isoformat()}
     conv['messages'].append(ai_msg)
     store.save(conv)  # every turn, so nothing is lost to a restart
@@ -216,8 +216,11 @@ def practice():
     SLT_CRITIC_MODEL will be felt here.
     """
     data = request.json
-    sentence = data.get('sentence', '')
+    sentence = (data.get('sentence') or '').strip()
     language = data.get('language', 'es')
+
+    if not sentence:
+        return jsonify({'error': 'No sentence provided'}), 400
 
     correction = grammar_checker.check_message(sentence, [], language)
     return jsonify(correction)
@@ -226,21 +229,24 @@ def practice():
 def translate():
     """Translate between English and target language (bidirectional)"""
     data = request.json
-    phrase = data.get('phrase', '')
+    phrase = (data.get('phrase') or '').strip()
     target_language = data.get('language', 'es')
     direction = data.get('direction', 'en-to-target')
-    
+
     if not phrase:
         return jsonify({'error': 'No phrase provided'}), 400
-    
-    messages = translation_messages(PROFILE, phrase, target_language, direction)
-    response_language = target_language if direction == "en-to-target" else "en"
 
+    messages = translation_messages(PROFILE, phrase, target_language, direction)
+
+    # ask() rather than chat(): chat() hands failures back as text, which the
+    # conversation wants and this does not — passed through, the learner is
+    # shown "Error: the model took longer than 120s" as their translation.
     try:
-        translation = ollama.chat(messages, response_language)
-        return jsonify({'translation': translation.strip()})
-    except Exception as e:
-        return jsonify({'error': f'Translation failed: {str(e)}'}), 500
+        translation = ollama.ask(messages)
+    except Exception as exc:
+        return jsonify({'error': f'Translation failed: {exc}'}), 502
+
+    return jsonify({'translation': translation.strip()})
 
 #: The bullet a model puts at the start of a line: "- ", "*   ", "• ".
 _LEADING_BULLET = re.compile(r"^[-*\u2022]+\s+")

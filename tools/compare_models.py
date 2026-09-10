@@ -118,8 +118,7 @@ def chat(model):
         for message in CHAT_TURNS:
             history.append({"role": "user", "content": message})
             start = time.perf_counter()
-            reply = client.chat(conversation_messages(profile, LANGUAGE, "friendly", history),
-                                LANGUAGE)
+            reply = client.chat(conversation_messages(profile, LANGUAGE, "friendly", history))
             times.append(time.perf_counter() - start)
             history.append({"role": "assistant", "content": reply})
             words.append(len(reply.split()))
@@ -140,7 +139,7 @@ def translate(model):
     for _ in range(TRIALS):
         for phrase, direction, wanted in TRANSLATIONS:
             start = time.perf_counter()
-            out = client.chat(translation_messages(profile, phrase, LANGUAGE, direction), LANGUAGE)
+            out = client.chat(translation_messages(profile, phrase, LANGUAGE, direction))
             times.append(time.perf_counter() - start)
             ok[1] += 1
             if any(w.lower() in out.lower() for w in wanted):

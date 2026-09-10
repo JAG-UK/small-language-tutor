@@ -409,3 +409,102 @@ class TestWhichModelsItUses:
         # One model in memory, for a machine that cannot hold two.
         app_module.use_critic(app_module.MODEL)
         assert app_module.critic is app_module.ollama
+
+
+class TestThePracticeBox:
+    """Check a sentence without putting it in the conversation."""
+
+    def test_returns_the_correction(self, client):
+        result = client.post("/api/practice",
+                             json={"sentence": "hola", "language": "es"}).get_json()
+        assert result["corrected"] == "HOLA"
+        assert result["has_errors"] is True
+
+    def test_judges_the_sentence_on_its_own(self, client):
+        # No conversation to read it in the light of: this is a sentence being
+        # tried out, not a reply to anything.
+        send(client, "vivo en Madrid")
+        client.post("/api/practice", json={"sentence": "hola", "language": "es"})
+        assert client.calls["check"][-1]["context"] == []
+
+    def test_does_not_join_the_conversation(self, client):
+        send(client, "hola")
+        before = len(app_module.conversations["s1"]["messages"])
+        client.post("/api/practice", json={"sentence": "otra cosa", "language": "es"})
+        assert len(app_module.conversations["s1"]["messages"]) == before
+
+    def test_uses_the_language_it_was_given(self, client):
+        client.post("/api/practice", json={"sentence": "salut", "language": "fr"})
+        assert client.calls["check"][-1]["language"] == "fr"
+
+    def test_an_empty_sentence_is_not_worth_a_model_call(self, client):
+        response = client.post("/api/practice", json={"sentence": "   ", "language": "es"})
+        assert response.status_code == 400
+        assert client.calls["check"] == []
+
+
+class TestTheTranslateBox:
+    @pytest.fixture
+    def translator(self, monkeypatch):
+        """Stands in for the model, and records what it was asked."""
+        asked = {}
+
+        def fake_ask(messages):
+            asked["messages"] = messages
+            return asked.get("answer", "  Buenos días  ")
+
+        monkeypatch.setattr(app_module.ollama, "ask", fake_ask)
+        return asked
+
+    def test_translates_the_phrase(self, client, translator):
+        result = client.post("/api/translate",
+                             json={"phrase": "good morning", "direction": "en-to-target",
+                                   "language": "es"}).get_json()
+        assert result["translation"] == "Buenos días"
+
+    @pytest.mark.parametrize(
+        "direction,source,target",
+        [("en-to-target", "English", "Spanish"), ("target-to-en", "Spanish", "English")],
+    )
+    def test_asks_for_the_direction_it_was_given(self, client, translator,
+                                                 direction, source, target):
+        client.post("/api/translate",
+                    json={"phrase": "hola", "direction": direction, "language": "es"})
+        prompt = " ".join(m["content"] for m in translator["messages"])
+        assert prompt.index(source) < prompt.index(target)
+
+    def test_an_empty_phrase_is_refused(self, client):
+        assert client.post("/api/translate", json={"phrase": "  "}).status_code == 400
+
+    def test_a_failure_is_reported_as_a_failure(self, client, monkeypatch):
+        """chat() hands failures back as text so the conversation can carry on.
+        The translate box has no such excuse: passed through, the learner is
+        shown "Error: the model took longer than 120s" as their translation."""
+        def boom(messages):
+            raise RuntimeError("Ollama is not answering")
+
+        monkeypatch.setattr(app_module.ollama, "ask", boom)
+        response = client.post("/api/translate", json={"phrase": "good morning"})
+
+        assert response.status_code == 502
+        assert "Ollama is not answering" in response.get_json()["error"]
+        assert "translation" not in response.get_json()
+
+
+class TestTheLearningPanelEndpoint:
+    def test_an_unknown_session_is_empty_rather_than_an_error(self, client):
+        response = client.get("/api/corrections?session_id=never-seen")
+        assert response.status_code == 200
+        assert "No learning points yet" in response.get_data(as_text=True)
+
+    def test_shows_what_that_session_has_collected(self, client):
+        turn = send(client, "hola")["turn"]
+        client.post("/api/review", json={"session_id": "s1", "turn": turn})
+        panel = client.get("/api/corrections?session_id=s1").get_data(as_text=True)
+        assert "HOLA" in panel
+
+    def test_one_session_does_not_see_another(self, client):
+        turn = send(client, "hola", session="mine")["turn"]
+        client.post("/api/review", json={"session_id": "mine", "turn": turn})
+        panel = client.get("/api/corrections?session_id=yours").get_data(as_text=True)
+        assert "HOLA" not in panel
