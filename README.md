@@ -10,6 +10,8 @@ Language learning reinforcement app based on local small language models.
 - **Conversation History**: Every turn is saved as it happens; reopen any past
   conversation, with its corrections, and carry on from where you left off
 - **Report Card**: What your recent mistakes have in common, and what to work on
+- **Let me start**: The tutor opens, in a situation chosen for what you keep
+  getting wrong — so having nothing to say is not a reason not to practise
 
 ## Setup
 
@@ -389,6 +391,36 @@ Columns the model gains are added to an existing database at startup.
 model after the file existed — was simply absent, and every save failed with
 `no such column: conversations.hints`.
 
+### Letting the tutor go first
+
+**…or let me start** has the tutor open the conversation. Two problems, one
+answer. Asked simply to start talking, a small model says "¡Hola! ¿Cómo estás?"
+and says it again tomorrow; a concrete role gets a concrete opening, and a deck
+of them gets variety without hoping for it. And a learner who has to invent the
+subject every time practises whatever they can already say, which is the
+opposite of the point.
+
+So `scenarios.py` holds a deck of situations, each tagged with what it drags out
+of you, and the choice is made from what your corrections show you keep
+dropping. Muddle `ser` and `estar` twice and you get the pharmacy, or a
+colleague asking how everyone is holding up — situations that cannot be answered
+without choosing between them.
+
+What you need to practise is counted, not asked for. `what_it_shows` maps a
+corrected word to one of five things and refuses to guess past them: accents and
+capitals work in any language the app offers, `ser`/`estar` and articles are a
+short Spanish table, and agreement is an `o`/`a` swap or a suffix. A looser
+version of that last rule called `comer` → `comí` an agreement slip, and
+`hablo` → `hablé` too once folding away the accent left an ending that looked
+like a gender one. Both are tense. A scenario chosen for the wrong reason is a
+wasted conversation, so a swap it cannot explain contributes nothing and the
+deck falls back to variety.
+
+The settings each name both parts and end with something for the model to do.
+"You are a pharmacist. The learner has come in feeling unwell" left phi4-mini
+describing its own symptoms — which is the learner's job, and the entire point
+of the exercise.
+
 ### The report card
 
 **Report card** looks over the corrections from recent conversations and says
@@ -452,6 +484,7 @@ small-language-tutor/
 ├── models.py              # The conversations table, and keeping it up to date
 ├── store.py               # Saving, reopening, listing and deleting
 ├── report.py             # What the mistakes add up to
+├── scenarios.py           # Something to talk about, chosen for what you get wrong
 ├── ollama_client.py       # SLM integration wrapper
 ├── grammar_checker.py     # Corrections and hints, and the guards on them
 ├── prompts.py             # Everything the models are asked, in one place

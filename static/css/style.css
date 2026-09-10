@@ -102,6 +102,10 @@ body {
     text-align: center;
     color: #666;
     padding: 2rem;
+    /* It holds a button now, under the text rather than beside it. */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 .message {
@@ -189,6 +193,32 @@ body {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+.start-me-off {
+    margin-top: 0.75rem;
+    padding: 0.5rem 1.1rem;
+    border: 1px solid #cbd5e0;
+    border-radius: 999px;
+    background: white;
+    color: #4a5568;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.start-me-off:hover {
+    border-color: #4a90d9;
+    color: #2c5282;
+}
+
+/* Where the conversation is set. Quiet: it is context, not dialogue. */
+.scenario-note {
+    align-self: center;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #a0aec0;
+    padding: 0.2rem 0;
 }
 
 /* The bubble the reply will appear in, holding a spinner until it does. Sized

@@ -9,11 +9,12 @@ from flask import Flask, jsonify, render_template, request
 
 import hosting
 import report as report_card
+import scenarios
 from grammar_checker import GrammarChecker
 from model_profiles import profile_for
 import store
 from ollama_client import OllamaClient
-from prompts import conversation_messages, translation_messages
+from prompts import conversation_messages, opening_messages, translation_messages
 
 app = Flask(__name__)
 
@@ -150,6 +151,42 @@ def chat():
         'conversation_id': conv['id'],
         'messages': conv['messages'],
     })
+
+@app.route('/api/opening', methods=['POST'])
+def opening():
+    """Let the tutor speak first, about something worth practising.
+
+    Coming up with a subject is work, and a learner who has to invent one every
+    time practises whatever they can already say. The situation is picked from
+    what the recent corrections show they keep getting wrong.
+    """
+    data = request.json or {}
+    session_id = data.get('session_id', 'default')
+    language = data.get('language', 'es')
+    tone = data.get('tone', 'friendly')
+
+    scenario = scenarios.choose(store.recent_corrections())
+
+    conv = store.new_conversation(language, tone)
+    conv['scenario'] = scenario['label']
+    conversations[session_id] = conv
+
+    messages = opening_messages(PROFILE, language, tone, scenario)
+    # Models sometimes hand back the line wrapped in quotation marks, as though
+    # reporting speech rather than speaking. It goes in a chat bubble.
+    line = ollama.chat(messages).strip().strip('"\u201c\u201d').strip()
+    conv['messages'].append(
+        {"role": "assistant", "content": line, "timestamp": datetime.now().isoformat()}
+    )
+    store.save(conv)
+
+    return jsonify({
+        'opening': line,
+        'scenario': scenario['label'],
+        'chosen_for': scenario['chosen_for'],
+        'conversation_id': conv['id'],
+    })
+
 
 @app.route('/api/review', methods=['POST'])
 def review():
