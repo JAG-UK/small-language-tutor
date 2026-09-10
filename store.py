@@ -119,6 +119,44 @@ def recent(limit=50):
         session.close()
 
 
+#: How many conversations back to look when gathering mistakes.
+REPORT_CONVERSATIONS = 20
+
+
+def recent_corrections(limit=40, conversations=REPORT_CONVERSATIONS):
+    """Every correction filed lately, newest first, across conversations.
+
+    The report card is about what keeps happening, which is not visible inside
+    any one conversation — the same mistake made on Tuesday and again on Friday
+    only looks like a habit when they are side by side.
+    """
+    session = Session()
+    try:
+        rows = (session.query(Conversation)
+                .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+                .limit(conversations).all())
+    finally:
+        session.close()
+
+    gathered = []
+    for row in rows:
+        for correction in _decode(row.corrections):
+            message = (correction.get('message') or '').strip()
+            corrected = (correction.get('corrected') or '').strip()
+            if not message or not corrected or message == corrected:
+                continue
+            gathered.append({
+                'message': message,
+                'corrected': corrected,
+                'timestamp': correction.get('timestamp') or '',
+                'language': row.language,
+                'conversation_id': row.id,
+            })
+
+    gathered.sort(key=lambda c: c['timestamp'], reverse=True)
+    return gathered[:limit]
+
+
 def delete(conv_id):
     """True if there was something to delete."""
     session = Session()

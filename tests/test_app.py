@@ -508,3 +508,85 @@ class TestTheLearningPanelEndpoint:
         client.post("/api/review", json={"session_id": "mine", "turn": turn})
         panel = client.get("/api/corrections?session_id=yours").get_data(as_text=True)
         assert "HOLA" not in panel
+
+
+class TestTheReportCard:
+    def mistakes(self, client, *pairs):
+        """File corrections the way a real conversation would."""
+        import store
+        for wrote, correct in pairs:
+            monkey = {"has_errors": True, "corrected": correct, "explanation": "e"}
+            app_module.grammar_checker.check_message = lambda *a, _r=monkey, **k: _r
+            turn = send(client, wrote)["turn"]
+            client.post("/api/review", json={"session_id": "s1", "turn": turn})
+        return store.recent_corrections()
+
+    def test_nothing_said_yet_says_so(self, client):
+        page = client.get("/api/report").get_data(as_text=True)
+        assert "No corrections yet" in page
+
+    def test_counts_what_it_drew_on(self, client, monkeypatch):
+        monkeypatch.setattr(app_module.report_card, "build",
+                            lambda *a, **k: {"language": "Spanish", "total": 7,
+                                             "conversations": 3, "repeats": [],
+                                             "themes": [], "note": ""})
+        page = client.get("/api/report").get_data(as_text=True)
+        assert "7 corrections across 3 conversations" in page
+
+    def test_shows_the_repeats_with_their_count(self, client, monkeypatch):
+        monkeypatch.setattr(app_module.report_card, "build",
+                            lambda *a, **k: {"language": "Spanish", "total": 5,
+                                             "conversations": 1, "themes": [], "note": "",
+                                             "repeats": [{"wrote": "anos",
+                                                          "should_be": "años", "times": 4}]})
+        page = client.get("/api/report").get_data(as_text=True)
+        assert "anos" in page and "años" in page and "4×" in page
+
+    def test_shows_a_theme_with_its_examples_and_advice(self, client, monkeypatch):
+        monkeypatch.setattr(app_module.report_card, "build",
+                            lambda *a, **k: {"language": "Spanish", "total": 5,
+                                             "conversations": 1, "repeats": [], "note": "",
+                                             "themes": [{"area": "Missing accents",
+                                                         "what_happens": "Accents get dropped.",
+                                                         "examples": ["anos"],
+                                                         "practise": "Learn the ñ key."}]})
+        page = client.get("/api/report").get_data(as_text=True)
+        assert "Missing accents" in page
+        assert "Accents get dropped." in page
+        assert "Learn the ñ key." in page
+
+    def test_escapes_what_the_learner_wrote(self, client, monkeypatch):
+        monkeypatch.setattr(app_module.report_card, "build",
+                            lambda *a, **k: {"language": "Spanish", "total": 2,
+                                             "conversations": 1, "themes": [], "note": "",
+                                             "repeats": [{"wrote": "<script>alert(1)</script>",
+                                                          "should_be": "x", "times": 2}]})
+        page = client.get("/api/report").get_data(as_text=True)
+        assert "<script>" not in page and "&lt;script&gt;" in page
+
+    def test_draws_on_corrections_from_real_conversations(self, client):
+        turn = send(client, "hola")["turn"]
+        client.post("/api/review", json={"session_id": "s1", "turn": turn})
+
+        import store
+        gathered = store.recent_corrections()
+        assert [c["corrected"] for c in gathered] == ["HOLA"]
+
+    def test_looks_across_conversations_not_just_the_open_one(self, client):
+        for session in ("one", "two"):
+            turn = send(client, "hola", session=session)["turn"]
+            client.post("/api/review", json={"session_id": session, "turn": turn})
+
+        import store
+        gathered = store.recent_corrections()
+        assert len({c["conversation_id"] for c in gathered}) == 2
+
+    def test_ignores_a_correction_that_changed_nothing(self, client):
+        import store
+        app_module.conversations["x"] = store.new_conversation("es", "friendly")
+        conv = app_module.conversations["x"]
+        conv["messages"] = [{"role": "user", "content": "hola", "timestamp": "t"}]
+        conv["corrections"] = [{"message": "hola", "corrected": "hola",
+                                "explanation": "", "timestamp": "t"}]
+        store.save(conv)
+        assert store.recent_corrections() == []

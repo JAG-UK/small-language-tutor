@@ -9,6 +9,7 @@ Language learning reinforcement app based on local small language models.
 - **Practice Area**: Test sentences before sending them to the conversation
 - **Conversation History**: Every turn is saved as it happens; reopen any past
   conversation, with its corrections, and carry on from where you left off
+- **Report Card**: What your recent mistakes have in common, and what to work on
 
 ## Setup
 
@@ -388,6 +389,41 @@ Columns the model gains are added to an existing database at startup.
 model after the file existed — was simply absent, and every save failed with
 `no such column: conversations.hints`.
 
+### The report card
+
+**Report card** looks over the corrections from recent conversations and says
+what they have in common. It is in two halves, and they are not equally
+trustworthy — the panel shows them as such.
+
+The first half is counted. That you wrote `anos` for `años` four times is
+arithmetic over the corrections, and arithmetic does not invent anything. Only
+one-for-one word swaps are counted: a correction that rewrites half a sentence
+says something about that sentence and nothing countable about a habit, and
+counting it would bury the swaps that do repeat.
+
+The second half is a model's reading of the same mistakes, grouped into a few
+areas with something to practise. Every example it gives is checked against what
+the learner actually wrote — loosely, since accents and capitals are exactly what
+tends to differ between the quote and the original. An example that cannot be
+found is dropped, and a theme left with none goes with it. Asked to find
+patterns, a model will happily illustrate one with a plausible mistake nobody
+made, and a report card that invents your mistakes is worse than no report card.
+
+Two things learned while building it, both the same lesson in different clothes:
+
+* The corrections go to the model as bare wrote/should-be pairs, without the
+  explanations that came with them. Those are the least reliable thing the
+  critic produces, and a wrong one repeated under a heading is a wrong lesson.
+* `examples` is `minItems: 1` in the schema. Without it, a model that ran long
+  in the prose fields closed the array empty, every theme was dropped for having
+  nothing behind it, and the report came back saying nothing stood out — on
+  about half of all runs. With that and a prompt asking for one sentence per
+  field, four runs out of four produced four themes.
+
+It costs one model call over the whole pile, so it takes 20 seconds or so and is
+asked for rather than produced on every turn. Below four corrections it does not
+ask at all: there is no pattern in three mistakes, only three mistakes.
+
 ### A turn is two requests
 
 `POST /api/chat` returns the conversational reply and nothing else, along with a
@@ -415,6 +451,7 @@ small-language-tutor/
 ├── app.py                 # Flask backend server
 ├── models.py              # The conversations table, and keeping it up to date
 ├── store.py               # Saving, reopening, listing and deleting
+├── report.py             # What the mistakes add up to
 ├── ollama_client.py       # SLM integration wrapper
 ├── grammar_checker.py     # Corrections and hints, and the guards on them
 ├── prompts.py             # Everything the models are asked, in one place

@@ -25,10 +25,12 @@
                     <option value="flirty">Flirty</option>
                 </select>
                 <button onclick="toggleConversations()" class="save-btn">Conversations</button>
+                <button onclick="toggleReport()" class="report-btn">Report card</button>
                 <button onclick="startNewConversation()" class="new-conversation-btn">New Conversation</button>
             </div>
             
             <div id="conversation-list" class="conversation-list" hidden></div>
+            <div id="report-card" class="report-card" hidden></div>
 
             <div id="chat-messages" class="chat-messages">
                 <div class="welcome-message">
@@ -246,9 +248,31 @@
         // Every turn is written through as it happens, so this list is simply
         // the history; there is nothing to press to keep a conversation.
 
+        // What the recent mistakes add up to. One model call over the lot, so
+        // it takes a while — hence the spinner rather than a blank panel.
+        function toggleReport() {
+            const panel = document.getElementById('report-card');
+            if (!panel.hidden) { panel.hidden = true; return; }
+
+            document.getElementById('conversation-list').hidden = true;
+            panel.innerHTML = '<div class="practice-loading">' +
+                '<span class="spinner-inline"></span>Looking over your mistakes…</div>';
+            panel.hidden = false;
+
+            fetch('/api/report')
+                .then(r => r.text())
+                .then(html => { panel.innerHTML = html; })
+                .catch(error => {
+                    console.error('Could not build the report:', error);
+                    panel.innerHTML =
+                        '<p class="empty-state">Could not look over those just now.</p>';
+                });
+        }
+
         function toggleConversations() {
             const panel = document.getElementById('conversation-list');
             if (!panel.hidden) { panel.hidden = true; return; }
+            document.getElementById('report-card').hidden = true;
             fetch('/api/conversations')
                 .then(r => r.text())
                 .then(html => { panel.innerHTML = html; panel.hidden = false; })

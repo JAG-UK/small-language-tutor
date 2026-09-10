@@ -8,6 +8,7 @@ from datetime import datetime
 from flask import Flask, jsonify, render_template, request
 
 import hosting
+import report as report_card
 from grammar_checker import GrammarChecker
 from model_profiles import profile_for
 import store
@@ -359,6 +360,70 @@ def render_learning_points(conv):
 def get_corrections():
     """The learning panel for a conversation, for the page to show on load."""
     return render_learning_points(conversations.get(request.args.get('session_id', 'default')))
+
+def render_report(report):
+    """The report card, as HTML.
+
+    Two halves, and they are not equally trustworthy. The tally and the repeats
+    are counted, so they are simply true. The themes are a model's reading of
+    the same mistakes, and are shown as that.
+    """
+    language = html.escape(str(report.get('language', '')))
+    total = report.get('total', 0)
+    conversations = report.get('conversations', 0)
+
+    if not total:
+        return ('<p class="empty-state">No corrections yet. '
+                'Have a conversation and this fills itself in.</p>')
+
+    plural = '' if total == 1 else 's'
+    across = '' if conversations <= 1 else f' across {conversations} conversations'
+    out = (f'<p class="report-tally">{total} correction{plural}{across}, '
+           f'in {language}.</p>')
+
+    repeats = report.get('repeats') or []
+    if repeats:
+        rows = ''
+        for slip in repeats:
+            rows += (f'<li><span class="slip-wrote">{html.escape(slip["wrote"])}</span>'
+                     f'<span class="slip-arrow">→</span>'
+                     f'<span class="slip-right">{html.escape(slip["should_be"])}</span>'
+                     f'<span class="slip-times">{slip["times"]}×</span></li>')
+        out += (f'<div class="report-section"><h4>Caught more than once</h4>'
+                f'<ul class="slip-list">{rows}</ul></div>')
+
+    for theme in report.get('themes') or []:
+        examples = ''.join(
+            f'<li>{html.escape(str(example))}</li>' for example in theme.get('examples', [])
+        )
+        out += f'''
+        <div class="report-theme">
+            <h4>{html.escape(theme.get("area", ""))}</h4>
+            <p class="theme-what">{html.escape(theme.get("what_happens", ""))}</p>
+            <ul class="theme-examples">{examples}</ul>
+            <p class="theme-practise">{html.escape(theme.get("practise", ""))}</p>
+        </div>
+        '''
+
+    if report.get('note'):
+        out += f'<p class="report-note">{html.escape(report["note"])}</p>'
+    return out
+
+
+@app.route('/api/report', methods=['GET'])
+def report():
+    """What the recent mistakes have in common.
+
+    One model call over the lot, so it is slow and deliberately so — this is
+    asked for, not produced on every turn.
+    """
+    corrections = store.recent_corrections()
+    language = corrections[0]['language'] if corrections else 'es'
+    # The critic's own profile, not the conversation model's: how terse the
+    # prompt should be is a property of the model about to read it.
+    profile = profile_for(critic.model)
+    return render_report(report_card.build(critic, profile, corrections, language))
+
 
 @app.route('/api/conversations', methods=['GET'])
 def list_conversations():
