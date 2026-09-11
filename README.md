@@ -367,7 +367,8 @@ This is a personal tool, not a service.
 ## Architecture
 
 - **Backend**: Flask (Python)
-- **Frontend**: HTMX + vanilla CSS
+- **Frontend**: vanilla JS + CSS, no framework and no CDN — the page
+  fetches nothing from the network, which is what makes it work on a plane
 - **Database**: SQLite
 - **SLM**: Ollama API integration
 - **Future**: Architecture supports voice conversations (to be implemented)
@@ -518,7 +519,7 @@ small-language-tutor/
 │   └── css/
 │       └── style.css      # Main stylesheet
 ├── templates/
-│   └── index.html         # Main HTMX interface
+│   └── index.html         # The page, and the JavaScript that drives it
 ├── requirements-dev.txt   # the above, plus pytest
 ├── tools/
 │   ├── compare_models.py  # Measure a model at each of the three jobs

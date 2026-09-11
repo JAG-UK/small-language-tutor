@@ -14,7 +14,8 @@ there is no way to check a model's guess about that.
 """
 
 import random
-import unicodedata
+
+from report import fold, word_changes
 
 #: What a mistake tells us, and what a situation asks for. Deliberately few:
 #: every one of these can be spotted in a correction without guessing, and four
@@ -185,13 +186,6 @@ DECK = [
 ]
 
 
-def _fold(word):
-    return "".join(
-        c for c in unicodedata.normalize("NFD", (word or "").lower())
-        if not unicodedata.combining(c)
-    )
-
-
 #: Swaps that say something specific, in Spanish. Everything above this line
 #: works in any language the app offers; this table does not, so a language it
 #: does not cover simply contributes the accent and capital signals.
@@ -223,7 +217,7 @@ def what_it_shows(wrote, should_be):
         return ARTICLES
 
     # Same letters, different marks: an accent or a tilde, whatever the language.
-    if _fold(wrote) == _fold(should_be):
+    if fold(wrote) == fold(should_be):
         return CAPITALS if wrote.lower() == should_be.lower() else ACCENTS
 
     # Gender and number live in the ending, so a word that changed only there
@@ -232,7 +226,7 @@ def what_it_shows(wrote, should_be):
     # Tightly, though. A looser "same stem" rule called comer/comí agreement,
     # which is a tense mistake wearing a similar shape, and a scenario chosen
     # for the wrong reason is a wasted conversation.
-    before, after = _fold(wrote), _fold(should_be)
+    before, after = fold(wrote), fold(should_be)
     if len(before) == len(after) and before[:-1] == after[:-1]:
         # o <-> a, and only that. Compared unfolded, so an accented ending is
         # excluded: hablo/hablé is a tense, and folding turned the é into an e
@@ -250,8 +244,6 @@ def weak_areas(corrections, minimum=2):
 
     A single slip is a slip. Twice is worth a conversation built around it.
     """
-    from report import word_changes
-
     counts = {}
     for correction in corrections:
         for wrote, should_be in word_changes(correction["message"], correction["corrected"]):

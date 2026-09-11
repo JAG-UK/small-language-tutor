@@ -81,10 +81,6 @@ class OllamaClient:
             return None
         return parsed if isinstance(parsed, dict) else None
 
-    def set_model(self, model):
-        """Change the model being used"""
-        self.model = model
-
     def available_models(self):
         """What this Ollama has pulled, for diagnostics and model pickers."""
         try:
