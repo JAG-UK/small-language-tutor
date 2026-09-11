@@ -36,6 +36,11 @@ class Conversation(Base):
     messages = Column(JSON, default=list)
     corrections = Column(JSON, default=list)
     hints = Column(JSON, default=list)
+    #: The situation the conversation was opened in, if it was opened by the
+    #: tutor: label and setting, no more. Kept because the partner is told it on
+    #: every turn, so a reopened conversation whose scenario was forgotten would
+    #: carry on out of character.
+    scenario = Column(JSON)
 
 
 def database_path():

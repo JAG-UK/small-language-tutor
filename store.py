@@ -22,6 +22,8 @@ def new_conversation(language, tone):
         'tone': tone,
         'corrections': [],
         'hints': [],
+        # Set when the tutor opened the conversation; None when the learner did.
+        'scenario': None,
         # Turns already critiqued, so a repeated or reopened conversation does
         # not file the same learning point twice. Runtime only; not stored.
         'reviewed': set(),
@@ -66,6 +68,7 @@ def save(conv):
         row.messages = conv.get('messages', [])
         row.corrections = conv.get('corrections', [])
         row.hints = conv.get('hints', [])
+        row.scenario = conv.get('scenario')
         row.updated_at = now()
 
         session.commit()
@@ -95,6 +98,8 @@ def load(conv_id):
             'tone': row.tone or 'friendly',
             'corrections': _decode(row.corrections),
             'hints': _decode(row.hints),
+            # A new column, so no row predates the fix _decode is there for.
+            'scenario': row.scenario,
             'reviewed': {i for i, m in enumerate(messages) if m.get('role') == 'user'},
         }
     finally:

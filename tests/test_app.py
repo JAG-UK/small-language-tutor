@@ -637,6 +637,22 @@ class TestLettingTheTutorGoFirst:
         assert "The situation:" in asked
         assert "Spanish" in asked
 
+    def test_the_situation_is_still_there_on_the_next_turn(self, client):
+        # It used to be spent on the opening: by turn two the pharmacist was a
+        # generic native speaker again.
+        self.start(client)
+        send(client, "Buenos días")
+        asked = " ".join(m["content"] for m in client.calls["chat"][-1])
+        assert "The situation:" in asked
+
+    def test_it_survives_reopening_the_conversation(self, client):
+        conversation_id = self.start(client)["conversation_id"]
+        app_module.conversations.clear()  # as a restart would
+        client.post(f"/api/conversations/{conversation_id}/open", json={"session_id": "s1"})
+        send(client, "Buenos días")
+        asked = " ".join(m["content"] for m in client.calls["chat"][-1])
+        assert "The situation:" in asked
+
     def test_it_starts_a_fresh_conversation_rather_than_joining_one(self, client):
         send(client, "hola")
         first = app_module.conversations["s1"]["id"]

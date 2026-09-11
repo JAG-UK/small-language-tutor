@@ -138,7 +138,9 @@ def chat():
 
     # How much of the transcript travels, and whether the instruction goes in a
     # system turn at all, is the model family's call.
-    messages_for_llm = conversation_messages(PROFILE, language, tone, conv["messages"])
+    messages_for_llm = conversation_messages(
+        PROFILE, language, tone, conv["messages"], conv.get("scenario")
+    )
 
     ai_response = ollama.chat(messages_for_llm)
     ai_msg = {"role": "assistant", "content": ai_response, "timestamp": datetime.now().isoformat()}
@@ -168,7 +170,9 @@ def opening():
     scenario = scenarios.choose(store.recent_corrections())
 
     conv = store.new_conversation(language, tone)
-    conv['scenario'] = scenario['label']
+    # Label and setting only: `elicits` is a set, which JSON has no word for,
+    # and nothing downstream of the choice needs it.
+    conv['scenario'] = {'label': scenario['label'], 'setting': scenario['setting']}
     conversations[session_id] = conv
 
     messages = opening_messages(PROFILE, language, tone, scenario)
