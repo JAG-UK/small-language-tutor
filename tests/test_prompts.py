@@ -50,6 +50,20 @@ class TestTheConversationPartner:
         # Both still say the thing that matters most.
         assert "Spanish" in terse and "Spanish" in detailed
 
+    def test_stays_in_the_situation_it_was_opened_in(self):
+        scenario = {"label": "The portera", "setting": "You are the portera."}
+        prompt = text_of(conversation_messages(TERSE, "es", "friendly", [], scenario))
+        assert "You are the portera." in prompt
+        # And the detailed prompt too, not only the terse one.
+        assert "You are the portera." in text_of(
+            conversation_messages(DETAILED, "es", "friendly", [], scenario)
+        )
+
+    def test_a_conversation_the_learner_started_has_no_situation(self):
+        assert "The situation:" not in text_of(
+            conversation_messages(TERSE, "es", "friendly", [])
+        )
+
     def test_carries_the_transcript(self):
         history = [{"role": "user", "content": "Hola", "timestamp": "t"}]
         assert conversation_messages(TERSE, "es", "friendly", history)[-1] == {

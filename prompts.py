@@ -59,9 +59,26 @@ def tone_description(tone: str, register: str = "behave") -> str:
 # --- the conversation partner ---------------------------------------------
 
 
-def _conversation_system(profile: ModelProfile, language: str, tone: str) -> str:
+#: Added to the partner's instruction for every turn of a conversation that has
+#: a situation, not only the opening one. Without it the pharmacist stopped
+#: being a pharmacist on turn two and reverted to a generic native speaker
+#: asking how you are, which is the blandness the deck exists to avoid.
+IN_CHARACTER = (
+    "The situation: {setting}\n"
+    "You are that person for the whole conversation: keep their opinions and "
+    "keep what they want. Do not greet the learner again, do not explain the "
+    "situation, and do not step out of it to talk about the language."
+)
+
+
+def _conversation_system(
+    profile: ModelProfile, language: str, tone: str, scenario: dict | None = None
+) -> str:
     lang = language_name(language)
     how = tone_description(tone, "behave")
+    situation = (
+        "\n\n" + IN_CHARACTER.format(setting=scenario["setting"]) if scenario else ""
+    )
 
     if profile.terse:
         return (
@@ -69,6 +86,7 @@ def _conversation_system(profile: ModelProfile, language: str, tone: str) -> str
             f"Be {how}\n"
             f"Reply only in {lang}, never in English. Keep it to 2-3 sentences.\n"
             f"If their message does not make sense, ask them to explain."
+            f"{situation}"
         )
 
     return f"""You are a {lang} native speaker having a natural conversation with the user. The tone of this conversation is {tone}: be {how}
@@ -82,12 +100,26 @@ CRITICAL RULES:
 6. If you need to explain something, explain it in {lang}, not in English.
 7. If you don't understand what the user is saying, or it doesn't make sense in the context of the rest of the conversation, ask them for clarification.
 
-Remember: This is a language practice conversation in a {tone} tone. The entire conversation must be in {lang}."""
+Remember: This is a language practice conversation in a {tone} tone. The entire conversation must be in {lang}.{situation}"""
 
 
-def conversation_messages(profile: ModelProfile, language: str, tone: str, history: list[dict]):
-    """The partner's turn: instruction plus as much transcript as it should carry."""
-    return with_history(profile, _conversation_system(profile, language, tone), history)
+def conversation_messages(
+    profile: ModelProfile,
+    language: str,
+    tone: str,
+    history: list[dict],
+    scenario: dict | None = None,
+):
+    """The partner's turn: instruction plus as much transcript as it should carry.
+
+    The scenario, where there is one, travels with every turn. It used to be
+    spent on the opening alone — so the situation that made the first line worth
+    reading was gone by the second, and the conversation flattened into the same
+    "¿y tú?" it was picked to avoid.
+    """
+    return with_history(
+        profile, _conversation_system(profile, language, tone, scenario), history
+    )
 
 
 # --- opening the conversation ----------------------------------------------
@@ -107,9 +139,9 @@ def opening_messages(profile: ModelProfile, language: str, tone: str, scenario: 
         f"You are a native {lang} speaker talking to someone learning {lang}.\n"
         f"The situation: {scenario['setting']}\n"
         f"Be {how}\n"
-        f"You are that person; the learner is the other one. Say the first thing "
-        f"you would say, in character, in one or two sentences — then let them "
-        f"answer.\n"
+        f"Your first move: {scenario['opening']}\n"
+        f"You are that person; the learner is the other one. Say it in character, "
+        f"in one or two sentences — then let them answer.\n"
         f"Write only in {lang}, never in English. Do not explain the situation, "
         f"do not describe yourself, and do not greet them as a language tutor "
         f"would — just begin."

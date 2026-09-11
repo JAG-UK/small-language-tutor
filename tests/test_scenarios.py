@@ -121,8 +121,15 @@ class TestChoosingASituation:
 class TestTheDeckItself:
     def test_every_situation_has_what_it_needs(self):
         for scenario in DECK:
-            assert scenario["label"] and scenario["setting"]
+            assert scenario["label"] and scenario["setting"] and scenario["opening"]
             assert isinstance(scenario["elicits"], set)
+
+    def test_the_setting_outlasts_the_opening(self):
+        """The setting is sent on every turn and the opening only on the first,
+        so an instruction to greet the learner belongs in the opening. In the
+        setting it had the partner saying hello again every time it spoke."""
+        for scenario in DECK:
+            assert "Greet" not in scenario["setting"]
 
     def test_labels_are_distinct(self):
         assert len({s["label"] for s in DECK}) == len(DECK)

@@ -14,7 +14,6 @@ there is no way to check a model's guess about that.
 """
 
 import random
-import re
 import unicodedata
 
 #: What a mistake tells us, and what a situation asks for. Deliberately few:
@@ -26,78 +25,162 @@ SER_ESTAR = "ser/estar"
 ARTICLES = "articles"
 AGREEMENT = "agreement"
 
-#: Situations. Described in English because that is the instruction; the model
-#: plays them in the language being learned.
+#: Situations, and what each one drags out of you.
+#:
+#: Two fields rather than one, because they are used at different moments.
+#: `setting` is who the other person is and what they want, and it travels with
+#: the conversation for the whole of it. `opening` is only their first move.
+#: Folding the two together — "Greet them and ask what the matter is" — had the
+#: partner greeting the learner again on every turn, once the setting started
+#: being carried past the opening.
+#:
+#: Described in English because that is the instruction; the model plays them in
+#: the language being learned. They are set where the learner lives, which is
+#: the difference between practising a language and practising a phrasebook:
+#: nobody who lives here needs to check into a hotel.
+#:
+#: Each one gives the other person something they want — an opinion, a
+#: complaint, a thing to sell, a suspicion. A partner with nothing at stake asks
+#: "¿y tú?" until the conversation dies of it.
 DECK = [
     {
-        "label": "At the pharmacy",
-        "setting": 'You are a pharmacist behind the counter. The learner has just walked in looking unwell. Greet them and ask what the matter is.',
-        "elicits": {SER_ESTAR},
-    },
-    {
-        "label": "A neighbour you have not seen for a while",
-        "setting": "You are the learner's neighbour and have not seen them in months. You have just bumped into them in the street. Say hello and ask how they have been.",
-        "elicits": {SER_ESTAR},
-    },
-    {
-        "label": "Describing your home",
-        "setting": "You are a friend who has never been to the learner's home. Say you are curious about it and ask them to describe it.",
-        "elicits": {ARTICLES, AGREEMENT},
-    },
-    {
-        "label": "At the market",
-        "setting": 'You run a fruit and vegetable stall and the learner is your customer. Greet them and tell them what is good today.',
-        "elicits": {ARTICLES, AGREEMENT},
-    },
-    {
-        "label": "Ordering in a restaurant",
-        "setting": 'You are a waiter and the learner is your customer, just seated. Welcome them and ask what they would like.',
-        "elicits": {ARTICLES, AGREEMENT},
-    },
-    {
-        "label": "Describing a friend",
-        "setting": "You are a friend of the learner's. Ask them to tell you about someone close to them and what that person is like.",
+        "label": "The portera and the building work",
+        "setting": "You are the portera of the learner's building, mopping the "
+        "entrance. The lift has been out for a week, the builders keep propping "
+        "the street door open, and you have opinions about both.",
+        "opening": "Catch them on their way in and tell them what the builders "
+        "have done today.",
         "elicits": {SER_ESTAR, AGREEMENT},
     },
     {
-        "label": "How is everyone today",
-        "setting": "You are the learner's colleague. The office is unusually busy. Say so, and ask how they are holding up.",
+        "label": "The gestoría and the wrong document",
+        "setting": "You work at a gestoría. The learner has come in about their "
+        "empadronamiento and has brought the wrong piece of paper. You are not "
+        "unkind about it, but you cannot do anything with what they have.",
+        "opening": "Ask what they have come in for, then tell them the document "
+        "is not the right one.",
+        "elicits": {ARTICLES, CAPITALS},
+    },
+    {
+        "label": "The landlord and the deposit",
+        "setting": "You are the learner's landlord. They are moving out and you "
+        "intend to keep part of the fianza for a mark on the kitchen wall, which "
+        "you suspect was there when they arrived but would rather not discuss.",
+        "opening": "Tell them you have been round the flat and there is "
+        "something you want to talk about.",
+        "elicits": {SER_ESTAR, ARTICLES},
+    },
+    {
+        "label": "The bar downstairs",
+        "setting": "You own the bar de barrio the learner drinks in. You have "
+        "known them by sight for a year, you have wondered about them for most "
+        "of it, and today you have decided to find out.",
+        "opening": "Put their coffee down and ask them the thing you have been "
+        "wondering.",
         "elicits": {SER_ESTAR, AGREEMENT},
     },
     {
-        "label": "Lost in the city",
-        "setting": 'You are a passer-by in the street and the learner looks lost. Ask them whether they need help finding somewhere.',
-        "elicits": {ARTICLES},
+        "label": "The building's group chat",
+        "setting": "You are a neighbour in the learner's building, writing in "
+        "the building's group chat. Somebody has been leaving bags beside the "
+        "bins instead of in them. You are fairly sure it is not the learner, but "
+        "you want them on your side before the next junta.",
+        "opening": "Write the message that starts the row, politely.",
+        "elicits": {SER_ESTAR, AGREEMENT},
     },
     {
-        "label": "Booking a room",
-        "setting": 'You are a hotel receptionist and the learner has come to the desk. Welcome them and ask what sort of room they need.',
+        "label": "At the CAP",
+        "setting": "You are a doctor at the learner's CAP. They have come in "
+        "with something that has been going on for a while, and they are "
+        "underplaying it.",
+        "opening": "Greet them, ask what has brought them in, and ask how long "
+        "it has been like that.",
+        "elicits": {SER_ESTAR},
+    },
+    {
+        "label": "The stall at the mercat",
+        "setting": "You run a stall at the neighbourhood mercat and the learner "
+        "is a regular. What they always buy is poor this week and you would "
+        "rather sell them something better.",
+        "opening": "Greet them, and steer them off their usual order before "
+        "they ask for it.",
         "elicits": {ARTICLES, AGREEMENT},
     },
     {
-        "label": "Names and places",
-        "setting": 'You are meeting the learner for the first time. Introduce yourself and ask their name and where they are from.',
+        "label": "Sant Jordi",
+        "setting": "You are a friend of the learner's, at a book stall on Sant "
+        "Jordi. You are buying for someone you want to impress and you cannot "
+        "decide between two books.",
+        "opening": "Hold both of them up and ask which one they would give.",
         "elicits": {CAPITALS, ACCENTS},
     },
     {
-        "label": "How old is everything",
-        "setting": 'You are an antiques dealer and the learner is browsing your shop. Ask them about the oldest thing they own.',
-        "elicits": {ACCENTS},
-    },
-    {
-        "label": "Weekend plans",
-        "setting": 'You are a friend making plans for the weekend. Suggest something and ask whether the learner wants to come.',
-        "elicits": set(),
-    },
-    {
-        "label": "Something you cooked",
-        "setting": 'You are a friend who loves food. Ask the learner what the last thing they cooked was.',
+        "label": "A tourist asks you",
+        "setting": "You are a visitor to the city, lost, with a phone that has "
+        "run out of data. The learner lives here — you stopped them because they "
+        "looked local.",
+        "opening": "Apologise for stopping them, and ask how to get where you "
+        "are going.",
         "elicits": {ARTICLES},
     },
     {
-        "label": "A film you both saw",
-        "setting": "You are a friend of the learner's. You have both just seen the same film and you liked it less than they did. Say what you thought and ask what they made of it.",
+        "label": "The internet has been down three days",
+        "setting": "You are on the phone from the learner's internet provider. "
+        "Their connection has been down since Monday, you do not believe it is "
+        "your company's fault, and you would like to establish that before "
+        "sending anybody out.",
+        "opening": "Introduce yourself and ask them to describe exactly what is "
+        "happening.",
+        "elicits": {ARTICLES, AGREEMENT},
+    },
+    {
+        "label": "The parcel that was delivered to nobody",
+        "setting": "You work at the Correos office. The learner's parcel is "
+        "marked as delivered and signed for, they never received it, and the "
+        "signature is not a name either of you recognises.",
+        "opening": "Look it up, and tell them what the system says.",
+        "elicits": {ARTICLES, CAPITALS},
+    },
+    {
+        "label": "The party upstairs",
+        "setting": "You are the learner's upstairs neighbour. They have knocked "
+        "at one in the morning about the noise. You are not especially sorry, "
+        "and it is somebody's birthday.",
+        "opening": "Open the door, over the music, and ask what they want.",
+        "elicits": {SER_ESTAR, AGREEMENT},
+    },
+    {
+        "label": "Helping with the festa major",
+        "setting": "You are a neighbour organising the barrio's festa major. You "
+        "are short of people for Saturday and the learner has walked past at the "
+        "wrong moment.",
+        "opening": "Stop them, and ask them to take on one specific job.",
+        "elicits": {CAPITALS, ACCENTS},
+    },
+    {
+        "label": "After the match",
+        "setting": "You are a regular at the bar and have just watched the match "
+        "beside the learner. You thought the team were dreadful and you suspect "
+        "they are about to defend them.",
+        "opening": "Say what you thought of it, plainly, and ask whether they "
+        "saw the same game.",
         "elicits": {AGREEMENT},
+    },
+    {
+        "label": "In the peluquería",
+        "setting": "You are cutting the learner's hair, with half an hour and "
+        "nothing else to do. You want to know where they are from, what they are "
+        "doing here, and whether they are staying.",
+        "opening": "Ask what they want done, then start asking about them.",
+        "elicits": {CAPITALS, ACCENTS, SER_ESTAR},
+    },
+    {
+        "label": "Viewing a flat in Gràcia",
+        "setting": "You are showing the learner a flat you are letting. It is "
+        "smaller and darker than the advert suggested, you know it, and you are "
+        "hoping they will not ask about the courtyard.",
+        "opening": "Let them in, and start selling it to them.",
+        "elicits": {ARTICLES, AGREEMENT},
     },
 ]
 

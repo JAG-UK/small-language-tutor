@@ -402,9 +402,18 @@ opposite of the point.
 
 So `scenarios.py` holds a deck of situations, each tagged with what it drags out
 of you, and the choice is made from what your corrections show you keep
-dropping. Muddle `ser` and `estar` twice and you get the pharmacy, or a
-colleague asking how everyone is holding up — situations that cannot be answered
-without choosing between them.
+dropping. Muddle `ser` and `estar` twice and you get the portera on the stairs
+about the builders, or the neighbour who has decided the bags by the bins are
+somebody's fault — situations that cannot be answered without choosing between
+them.
+
+The deck is set where the learner actually lives, which is the difference
+between practising a language and practising a phrasebook: a resident does not
+check into a hotel or ask where the station is, they argue about a deposit, take
+the wrong paper to the gestoría, and get talked out of their usual order at the
+market. And each situation gives the other person something they want — an
+opinion, a complaint, a thing to sell, a suspicion. A partner with nothing at
+stake asks "¿y tú?" until the conversation dies of it.
 
 What you need to practise is counted, not asked for. `what_it_shows` maps a
 corrected word to one of five things and refuses to guess past them: accents and
@@ -420,6 +429,21 @@ The settings each name both parts and end with something for the model to do.
 "You are a pharmacist. The learner has come in feeling unwell" left phi4-mini
 describing its own symptoms — which is the learner's job, and the entire point
 of the exercise.
+
+### The situation lasts the whole conversation
+
+A scenario spent on the opening alone buys one good line. `POST /api/chat` used
+to build the partner's instruction from the language and the tone and nothing
+else, so the portera stopped being the portera on turn two and reverted to a
+native speaker asking how you are — which is what the deck exists to avoid. The
+situation now travels with every turn, and is stored on the conversation, so
+reopening one from last week picks it up in character rather than out of it.
+
+That is why each entry has a `setting` and an `opening` rather than one field
+holding both. The setting — who you are, and what you want — is true for the
+whole conversation. The opening is a first move, and "Greet them and ask what
+the matter is" said on every turn had the partner saying hello again each time
+it spoke.
 
 ### The report card
 
