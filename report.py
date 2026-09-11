@@ -61,8 +61,11 @@ def _words(text):
     return re.findall(r"\w+", text or "")
 
 
-def _fold(word):
-    """Lower-cased and stripped of accents, for comparing loosely."""
+def fold(word):
+    """Lower-cased and stripped of accents, for comparing loosely.
+
+    Public because scenarios.py compares the same way, for the same reason.
+    """
     return "".join(
         c for c in unicodedata.normalize("NFD", (word or "").lower())
         if not unicodedata.combining(c)
@@ -113,11 +116,11 @@ def _mentioned(example, corrections):
     quote and the original, and holding it to the letter would throw away
     perfectly good examples.
     """
-    wanted = _fold(example).strip()
+    wanted = fold(example).strip()
     if not wanted:
         return False
     for correction in corrections:
-        haystack = _fold(correction["message"]) + " " + _fold(correction["corrected"])
+        haystack = fold(correction["message"]) + " " + fold(correction["corrected"])
         if wanted in haystack:
             return True
     return False

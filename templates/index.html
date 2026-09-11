@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Language Tutor</title>
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
@@ -111,6 +110,16 @@
             '<button onclick="startMeOff()" class="start-me-off">…or let me start</button>' +
             '</div>';
 
+        // Every POST here sends JSON, so the preamble is written once rather
+        // than at each of the six call sites.
+        function post(url, body) {
+            return fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+        }
+
         function rememberConversation(id) {
             try {
                 if (id === null || id === undefined) localStorage.removeItem(RESUME_KEY);
@@ -197,16 +206,7 @@
             sendSpinner.style.display = 'inline-block';
             input.disabled = true;
 
-            fetch('/api/chat', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    session_id: sessionId,
-                    message: message,
-                    language: language,
-                    tone: tone
-                })
-            })
+            post('/api/chat', {session_id: sessionId, message, language, tone})
             .then(r => r.json())
             .then(data => {
                 // The spinner bubble becomes the reply, in the place it has
@@ -247,11 +247,7 @@
             const pending = document.getElementById('review-pending');
             pending.hidden = false;
             
-            fetch('/api/review', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({session_id: sessionId, turn: turn})
-            })
+            post('/api/review', {session_id: sessionId, turn})
             .then(r => r.ok ? r.text() : null)
             .then(html => {
                 if (html !== null) {
@@ -298,11 +294,7 @@
         }
 
         function openConversation(id) {
-            fetch(`/api/conversations/${id}/open`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({session_id: sessionId})
-            })
+            post(`/api/conversations/${id}/open`, {session_id: sessionId})
             .then(r => r.ok ? r.json() : Promise.reject(r.status))
             .then(data => {
                 rememberConversation(data.id);
@@ -350,11 +342,7 @@
             clearWelcome();
             const pending = addPendingReply();
 
-            fetch('/api/opening', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({session_id: sessionId, language, tone})
-            })
+            post('/api/opening', {session_id: sessionId, language, tone})
             .then(r => r.ok ? r.json() : Promise.reject(r.status))
             .then(data => {
                 pending.remove();
@@ -416,11 +404,7 @@
             resultDiv.innerHTML =
                 '<div class="practice-loading"><span class="spinner-inline"></span>Checking…</div>';
 
-            fetch('/api/practice', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({sentence, language})
-            })
+            post('/api/practice', {sentence, language})
             .then(r => r.json())
             .then(data => {
                 if (data.error) {
@@ -479,15 +463,7 @@
             resultDiv.innerHTML =
                 '<div class="practice-loading"><span class="spinner-inline"></span>Translating…</div>';
             
-            fetch('/api/translate', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    phrase: phrase,
-                    language: language,
-                    direction: direction
-                })
-            })
+            post('/api/translate', {phrase, language, direction})
             .then(r => r.json())
             .then(data => {
                 if (data.error) {
